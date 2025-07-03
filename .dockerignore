@@ -1,0 +1,12 @@
+# flyctl launch added from .gitignore
+**/__pycache__
+**/*.pyc
+**/.env
+**/.env.*
+**/*.sqlite3
+migrations
+venv
+env
+.idea
+.vscode
+fly.toml
