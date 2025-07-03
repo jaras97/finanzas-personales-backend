@@ -1,1 +1,0 @@
-# finanzas-personales-backend
