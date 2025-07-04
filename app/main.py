@@ -14,7 +14,7 @@ app = FastAPI(lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "finanzas-personal-frontend-1xt6.vercel.app",  # Reemplaza con el dominio de producción de tu frontend
+        "https://finanzas-personal-frontend-1xt6.vercel.app",  # Reemplaza con el dominio de producción de tu frontend
         "http://localhost:3000"],  # O usa ["*"] mientras desarrollas
     allow_credentials=True,
     allow_methods=["*"],
