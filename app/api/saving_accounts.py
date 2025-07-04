@@ -109,7 +109,7 @@ def withdraw_from_saving_account(
     withdraw_data: SavingAccountWithdraw,
     user_id: UUID = Depends(get_current_user_with_subscription_check)
 ):
-    user_id = UUID(user_id)
+    
     with Session(engine) as session:
         account = session.get(SavingAccount, account_id)
 
@@ -150,7 +150,7 @@ def deposit_to_saving_account(
 ):
     with Session(engine) as session:
         account = session.get(SavingAccount, account_id)
-        if not account or account.user_id != UUID(user_id):
+        if not account or account.user_id != user_id:
             raise HTTPException(status_code=404, detail="Cuenta no encontrada")
 
         account.balance += data.amount

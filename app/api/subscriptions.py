@@ -24,7 +24,13 @@ def get_my_subscription(
         raise HTTPException(status_code=404, detail="No tienes una suscripción activa.")
 
     now = datetime.now(timezone.utc)
-    status = "expired" if subscription.end_date < now else "active"
+
+    # ✅ Arreglo seguro para evitar el error
+    end_date = subscription.end_date
+    if end_date.tzinfo is None:
+        end_date = end_date.replace(tzinfo=timezone.utc)
+
+    status = "expired" if end_date < now else "active"
 
     return {
         **subscription.dict(),

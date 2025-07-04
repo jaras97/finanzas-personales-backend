@@ -59,7 +59,7 @@ def update_debt(
     debt_data: DebtCreate,
     user_id: UUID = Depends(get_current_user_with_subscription_check),
 ):
-    user_id = UUID(user_id)
+    
     with Session(engine) as session:
         debt = session.exec(
             select(Debt).where(Debt.id == debt_id, Debt.user_id == user_id)
@@ -114,7 +114,7 @@ def delete_debt(
     debt_id: int,
     user_id: UUID = Depends(get_current_user_with_subscription_check),
 ):
-    user_id = UUID(user_id)
+    
     with Session(engine) as session:
         debt = session.exec(
             select(Debt).where(Debt.id == debt_id, Debt.user_id == user_id)
@@ -138,7 +138,7 @@ def pay_debt(
     payment: DebtPayment,
     user_id: UUID = Depends(get_current_user_with_subscription_check)
 ):
-    user_id = UUID(user_id)
+  
     if payment.amount <= 0:
         raise HTTPException(status_code=400, detail="El monto debe ser mayor a cero.")
 
@@ -212,7 +212,7 @@ def add_charge_to_debt(
     data: AddChargeRequest,
     user_id: UUID = Depends(get_current_user_with_subscription_check),
 ):
-    user_id = UUID(user_id)
+   
     with Session(engine) as session:
         debt = session.get(Debt, debt_id)
 
@@ -250,7 +250,7 @@ def get_debt_transactions(
     debt_id: int,
     user_id: UUID = Depends(get_current_user_with_subscription_check),
 ):
-    user_id = UUID(user_id)
+   
     with Session(engine) as session:
         debt = session.get(Debt, debt_id)
         if not debt or debt.user_id != user_id:
@@ -270,7 +270,7 @@ def register_credit_card_purchase(
     purchase: AddChargeRequest,  # reutiliza schema (amount, description, date)
     user_id: UUID = Depends(get_current_user_with_subscription_check)
 ):
-    user_id = UUID(user_id)
+   
     if purchase.amount <= 0:
         raise HTTPException(status_code=400, detail="El monto debe ser positivo.")
 

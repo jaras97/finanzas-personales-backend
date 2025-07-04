@@ -106,7 +106,7 @@ def create_transfer(
     transfer_data: TransferCreate,
     user_id: UUID = Depends(get_current_user_with_subscription_check)
 ):
-    user_id = UUID(user_id)
+    
     if transfer_data.from_account_id == transfer_data.to_account_id:
         raise HTTPException(status_code=400, detail="No se puede transferir a la misma cuenta.")
     if transfer_data.amount <= 0:
@@ -206,7 +206,7 @@ def register_yield(
     data: RegisterYieldCreate,
     user_id: UUID = Depends(get_current_user_with_subscription_check)
 ):
-    user_id = UUID(user_id)
+ 
     with Session(engine) as session:
         if data.amount <= 0:
             raise HTTPException(status_code=400, detail="El monto debe ser positivo.")
