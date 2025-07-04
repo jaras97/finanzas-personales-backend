@@ -6,7 +6,7 @@ from typing import List
 from app.database import engine
 from app.models.saving_account import SavingAccount, SavingAccountStatus
 from app.schemas.saving_account import SavingAccountCreate, SavingAccountDeposit, SavingAccountRead, SavingAccountWithdraw
-from app.core.security import get_current_user
+from app.core.security import get_current_user, get_current_user_with_subscription_check
 from app.schemas.transaction import TransactionWithCategoryRead
 from sqlalchemy.orm import joinedload
 
@@ -20,7 +20,7 @@ router = APIRouter(prefix="/saving-accounts", tags=["saving_accounts"])
 @router.post("/", response_model=SavingAccountRead)
 def create_saving_account(
     account_data: SavingAccountCreate,
-    user_id: UUID = Depends(get_current_user),
+    user_id: UUID = Depends(get_current_user_with_subscription_check),
 ):
     with Session(engine) as session:
         existing = session.exec(
@@ -40,7 +40,7 @@ def create_saving_account(
 
 
 @router.get("/", response_model=List[SavingAccountRead])
-def list_saving_accounts(user_id: UUID = Depends(get_current_user)):
+def list_saving_accounts(user_id: UUID = Depends(get_current_user_with_subscription_check)):
     with Session(engine) as session:
         accounts = session.exec(
             select(SavingAccount).where(SavingAccount.user_id == user_id)
@@ -52,7 +52,7 @@ def list_saving_accounts(user_id: UUID = Depends(get_current_user)):
 def update_saving_account(
     account_id: int,
     account_data: SavingAccountCreate,
-    user_id: UUID = Depends(get_current_user),
+    user_id: UUID = Depends(get_current_user_with_subscription_check),
 ):
     with Session(engine) as session:
         account = session.exec(
@@ -77,7 +77,7 @@ from sqlalchemy.exc import IntegrityError
 @router.delete("/{account_id}")
 def delete_saving_account(
     account_id: int,
-    user_id: UUID = Depends(get_current_user),
+    user_id: UUID = Depends(get_current_user_with_subscription_check),
 ):
     with Session(engine) as session:
         account = session.exec(
@@ -107,7 +107,7 @@ def delete_saving_account(
 def withdraw_from_saving_account(
     account_id: int,
     withdraw_data: SavingAccountWithdraw,
-    user_id: UUID = Depends(get_current_user)
+    user_id: UUID = Depends(get_current_user_with_subscription_check)
 ):
     user_id = UUID(user_id)
     with Session(engine) as session:
@@ -146,7 +146,7 @@ def withdraw_from_saving_account(
 def deposit_to_saving_account(
     account_id: int,
     data: SavingAccountDeposit,
-    user_id: UUID = Depends(get_current_user),
+    user_id: UUID = Depends(get_current_user_with_subscription_check),
 ):
     with Session(engine) as session:
         account = session.get(SavingAccount, account_id)
@@ -175,7 +175,7 @@ def deposit_to_saving_account(
 @router.post("/{account_id}/close")
 def close_saving_account(
     account_id: int,
-    user_id: UUID = Depends(get_current_user),
+    user_id: UUID = Depends(get_current_user_with_subscription_check),
 ):
     with Session(engine) as session:
         account = session.exec(
@@ -206,7 +206,7 @@ def close_saving_account(
 @router.get("/{account_id}/transactions", response_model=List[TransactionWithCategoryRead])
 def get_account_transactions(
     account_id: int,
-    user_id: UUID = Depends(get_current_user),
+    user_id: UUID = Depends(get_current_user_with_subscription_check),
 ):
     with Session(engine) as session:
         account = session.exec(

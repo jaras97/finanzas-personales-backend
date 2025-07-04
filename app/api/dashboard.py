@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends
 from sqlmodel import Session, select, func
 from datetime import datetime
 from app.database import engine
-from app.core.security import get_current_user
+from app.core.security import get_current_user, get_current_user_with_subscription_check
 from uuid import UUID
 
 from app.models.transaction import Transaction
@@ -15,7 +15,7 @@ from app.models.debt import Debt
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
 @router.get("/resumen")
-def financial_summary(user_id: UUID = Depends(get_current_user)):
+def financial_summary(user_id: UUID = Depends(get_current_user_with_subscription_check)):
     with Session(engine) as session:
         today = datetime.utcnow()
         month_start = today.replace(day=1)

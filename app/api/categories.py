@@ -8,7 +8,7 @@ from app.database import engine
 from app.models.category import Category, CategoryType
 from app.models.transaction import Transaction
 from app.schemas.category import CategoryCreate, CategoryRead
-from app.core.security import get_current_user
+from app.core.security import get_current_user, get_current_user_with_subscription_check
 
 router = APIRouter(prefix="/categories", tags=["categories"])
 
@@ -16,7 +16,7 @@ router = APIRouter(prefix="/categories", tags=["categories"])
 @router.post("/", response_model=CategoryRead)
 def create_category(
     category_data: CategoryCreate,
-    user_id: UUID = Depends(get_current_user)
+    user_id: UUID = Depends(get_current_user_with_subscription_check)
 ):
     with Session(engine) as session:
         exists = session.exec(
@@ -37,7 +37,7 @@ def create_category(
 
 @router.get("/", response_model=list[CategoryRead])
 def list_categories(
-    user_id: UUID = Depends(get_current_user),
+    user_id: UUID = Depends(get_current_user_with_subscription_check),
     type: Optional[CategoryType] = Query(None),
     status: Optional[str] = Query("active"),  # "active", "inactive", "all"
 ):
@@ -61,7 +61,7 @@ def list_categories(
 def update_category(
     category_id: int,
     category_data: CategoryCreate,
-    user_id: UUID = Depends(get_current_user)
+    user_id: UUID = Depends(get_current_user_with_subscription_check)
 ):
     with Session(engine) as session:
         category = session.exec(
@@ -100,7 +100,7 @@ def update_category(
 @router.delete("/{category_id}")
 def delete_category(
     category_id: int,
-    user_id: UUID = Depends(get_current_user)
+    user_id: UUID = Depends(get_current_user_with_subscription_check)
 ):
     with Session(engine) as session:
         category = session.exec(
@@ -142,7 +142,7 @@ def delete_category(
 @router.put("/{category_id}/reactivate", response_model=CategoryRead)
 def reactivate_category(
     category_id: int,
-    user_id: UUID = Depends(get_current_user)
+    user_id: UUID = Depends(get_current_user_with_subscription_check)
 ):
     with Session(engine) as session:
         category = session.exec(

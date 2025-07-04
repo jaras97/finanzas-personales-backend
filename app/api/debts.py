@@ -12,7 +12,7 @@ from app.models.enums import TransactionType
 from app.models.saving_account import SavingAccount
 from app.models.transaction import Transaction
 from app.schemas.debt import AddChargeRequest, DebtCreate, DebtPayment, DebtRead
-from app.core.security import get_current_user
+from app.core.security import get_current_user, get_current_user_with_subscription_check
 from app.schemas.debt_transaction import DebtTransactionRead
 from app.schemas.transaction import TransactionRead
 from app.utils.account_helpers import update_account_balance
@@ -23,7 +23,7 @@ router = APIRouter(prefix="/debts", tags=["debts"])
 @router.post("/", response_model=DebtRead)
 def create_debt(
     debt_data: DebtCreate,
-    user_id: UUID = Depends(get_current_user),
+    user_id: UUID = Depends(get_current_user_with_subscription_check),
 ):
     with Session(engine) as session:
         new_debt = Debt(**debt_data.dict(), user_id=user_id)
@@ -34,7 +34,7 @@ def create_debt(
 
 
 @router.get("/", response_model=List[DebtRead])
-def get_debts(user_id: UUID = Depends(get_current_user)):
+def get_debts(user_id: UUID = Depends(get_current_user_with_subscription_check)):
     with Session(engine) as session:
         debts = session.exec(select(Debt).where(Debt.user_id == user_id)).all()
         debts_read = []
@@ -57,7 +57,7 @@ def get_debts(user_id: UUID = Depends(get_current_user)):
 def update_debt(
     debt_id: int,
     debt_data: DebtCreate,
-    user_id: UUID = Depends(get_current_user),
+    user_id: UUID = Depends(get_current_user_with_subscription_check),
 ):
     user_id = UUID(user_id)
     with Session(engine) as session:
@@ -112,7 +112,7 @@ def update_debt(
 @router.delete("/{debt_id}")
 def delete_debt(
     debt_id: int,
-    user_id: UUID = Depends(get_current_user),
+    user_id: UUID = Depends(get_current_user_with_subscription_check),
 ):
     user_id = UUID(user_id)
     with Session(engine) as session:
@@ -136,7 +136,7 @@ def delete_debt(
 def pay_debt(
     debt_id: int,
     payment: DebtPayment,
-    user_id: UUID = Depends(get_current_user)
+    user_id: UUID = Depends(get_current_user_with_subscription_check)
 ):
     user_id = UUID(user_id)
     if payment.amount <= 0:
@@ -210,7 +210,7 @@ def pay_debt(
 def add_charge_to_debt(
     debt_id: int,
     data: AddChargeRequest,
-    user_id: UUID = Depends(get_current_user),
+    user_id: UUID = Depends(get_current_user_with_subscription_check),
 ):
     user_id = UUID(user_id)
     with Session(engine) as session:
@@ -248,7 +248,7 @@ def add_charge_to_debt(
 @router.get("/{debt_id}/transactions", response_model=List[DebtTransactionRead])
 def get_debt_transactions(
     debt_id: int,
-    user_id: UUID = Depends(get_current_user),
+    user_id: UUID = Depends(get_current_user_with_subscription_check),
 ):
     user_id = UUID(user_id)
     with Session(engine) as session:
@@ -268,7 +268,7 @@ def get_debt_transactions(
 def register_credit_card_purchase(
     debt_id: int,
     purchase: AddChargeRequest,  # reutiliza schema (amount, description, date)
-    user_id: UUID = Depends(get_current_user)
+    user_id: UUID = Depends(get_current_user_with_subscription_check)
 ):
     user_id = UUID(user_id)
     if purchase.amount <= 0:

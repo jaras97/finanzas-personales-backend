@@ -8,7 +8,7 @@ from app.models.enums import TransactionType
 from app.models.saving_account import SavingAccount, SavingAccountStatus, SavingAccountType
 from app.models.transaction import Transaction
 from app.schemas.transaction import RegisterYieldCreate, TransactionCreate, TransactionRead, TransferCreate
-from app.core.security import get_current_user
+from app.core.security import get_current_user, get_current_user_with_subscription_check
 from datetime import datetime
 from typing import Optional, List
 from fastapi import Query
@@ -27,7 +27,7 @@ from datetime import datetime
 @router.post("/", response_model=TransactionRead)
 def create_transaction(
     transaction_data: TransactionCreate,
-    user_id: UUID = Depends(get_current_user)
+    user_id: UUID = Depends(get_current_user_with_subscription_check)
 ):
     with Session(engine) as session:
         if transaction_data.amount <= 0:
@@ -104,7 +104,7 @@ def create_transaction(
 @router.post("/transfer", response_model=List[TransactionRead])
 def create_transfer(
     transfer_data: TransferCreate,
-    user_id: UUID = Depends(get_current_user)
+    user_id: UUID = Depends(get_current_user_with_subscription_check)
 ):
     user_id = UUID(user_id)
     if transfer_data.from_account_id == transfer_data.to_account_id:
@@ -204,7 +204,7 @@ def create_transfer(
 def register_yield(
     account_id: int,
     data: RegisterYieldCreate,
-    user_id: UUID = Depends(get_current_user)
+    user_id: UUID = Depends(get_current_user_with_subscription_check)
 ):
     user_id = UUID(user_id)
     with Session(engine) as session:
@@ -244,7 +244,7 @@ def register_yield(
 
 @router.get("/with-category", response_model=dict)
 def list_transactions_with_category(
-    user_id: UUID = Depends(get_current_user),
+    user_id: UUID = Depends(get_current_user_with_subscription_check),
     start_date: Optional[datetime] = Query(None, alias="startDate"),
     end_date: Optional[datetime] = Query(None, alias="endDate"),
     category_id: Optional[int] = Query(None, alias="categoryId"),
@@ -302,7 +302,7 @@ def list_transactions_with_category(
 def update_transaction(
     transaction_id: int,
     transaction_data: TransactionCreate,
-    user_id: UUID = Depends(get_current_user)
+    user_id: UUID = Depends(get_current_user_with_subscription_check)
 ):
     with Session(engine) as session:
         transaction = session.exec(
@@ -382,7 +382,7 @@ def update_transaction(
 @router.delete("/{transaction_id}")
 def delete_transaction(
     transaction_id: int,
-    user_id: UUID = Depends(get_current_user)
+    user_id: UUID = Depends(get_current_user_with_subscription_check)
 ):
     with Session(engine) as session:
         transaction = session.exec(
@@ -429,7 +429,7 @@ def delete_transaction(
 @router.post("/{transaction_id}/reverse", response_model=TransactionRead)
 def reverse_transaction(
     transaction_id: int,
-    user_id: UUID = Depends(get_current_user),
+    user_id: UUID = Depends(get_current_user_with_subscription_check),
 ):
     with Session(engine) as session:
         tx = session.exec(
