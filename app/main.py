@@ -13,7 +13,9 @@ app = FastAPI(lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # O usa ["*"] mientras desarrollas
+    allow_origins=[
+        "https://personal-finances-backend.fly.dev",  # Reemplaza con el dominio de producción de tu frontend
+        "http://localhost:3000"],  # O usa ["*"] mientras desarrollas
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
