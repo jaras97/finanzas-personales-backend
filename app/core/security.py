@@ -63,15 +63,21 @@ def get_current_user_with_subscription_check(token: str = Depends(oauth2_scheme)
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="No tienes una suscripción activa. Por favor suscríbete para continuar."
             )
-               # 🚩 Bloquear si la suscripción está inactiva
+
+        # 🚩 Bloquear si la suscripción está inactiva
         if not subscription.is_active:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Tu suscripción está inactiva. Por favor contacta al administrador para activarla."
             )
 
+        # ✅ CORRECCIÓN: Asegurar que end_date sea timezone-aware
+        end_date = subscription.end_date
+        if end_date.tzinfo is None:
+            end_date = end_date.replace(tzinfo=timezone.utc)
+
         # 🚩 Bloquear si la suscripción está vencida
-        if subscription.end_date and subscription.end_date < datetime.now(timezone.utc):
+        if end_date < datetime.now(timezone.utc):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Tu suscripción ha expirado. Por favor renueva para continuar."
