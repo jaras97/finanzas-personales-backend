@@ -171,7 +171,8 @@ def create_transfer(
             to_account_id=transfer_data.to_account_id,
             saving_account_id=transfer_data.to_account_id,
             date=now,
-            category_id=transfer_category.id
+            category_id=transfer_category.id,
+            source_type="transfer",
         )
 
         # Actualizar balances
