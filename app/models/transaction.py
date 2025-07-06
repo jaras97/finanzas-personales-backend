@@ -27,6 +27,7 @@ class Transaction(SQLModel, table=True):
     debt: Optional["Debt"] = Relationship(back_populates="transactions")
     source_type: Optional[str] = Field(default=None, nullable=True)
     
+    
 
     # Categoría solo obligatoria en income y expense
     category_id: Optional[int] = Field(default=None, foreign_key="category.id")
