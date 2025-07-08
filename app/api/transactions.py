@@ -1,4 +1,4 @@
-from uuid import UUID
+from uuid import UUID, uuid4
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 from sqlmodel import Session, select
@@ -145,6 +145,8 @@ def create_transfer(
         now = datetime.utcnow()
         transfer_category = get_or_create_transfer_category(session, user_id)
 
+        transfer_group_id = uuid4()
+
         # Transacción de egreso
         from_tx = Transaction(
             user_id=user_id,
@@ -158,6 +160,7 @@ def create_transfer(
             date=now,
             category_id=transfer_category.id,
             source_type="transfer",
+            transfer_group_id=transfer_group_id,
         )
 
         # Transacción de ingreso
@@ -173,6 +176,7 @@ def create_transfer(
             date=now,
             category_id=transfer_category.id,
             source_type="transfer",
+            transfer_group_id=transfer_group_id,
         )
 
         # Actualizar balances
@@ -445,55 +449,78 @@ def reverse_transaction(
 
         if tx.is_cancelled:
             raise HTTPException(status_code=400, detail="Esta transacción ya está cancelada.")
-        
+
         if tx.reversed_transaction_id:
             raise HTTPException(status_code=400, detail="Esta transacción es una reversa y no puede ser reversada nuevamente.")
 
         if tx.type not in [TransactionType.income, TransactionType.expense]:
             raise HTTPException(status_code=400, detail="Solo se pueden revertir ingresos o gastos.")
 
-        # Generar transacción inversa
-        inverse_type = TransactionType.expense if tx.type == TransactionType.income else TransactionType.income
-        inverse_amount = tx.amount
+        transactions_to_reverse = [tx]
 
-        reversed_tx = Transaction(
-            user_id=user_id,
-            amount=inverse_amount,
-            type=inverse_type,
-            transaction_fee=0.0,
-            description=f"Reversión de transacción #{tx.id}: {tx.description}",
-            date=datetime.utcnow(),
-            category_id=tx.category_id,
-            saving_account_id=tx.saving_account_id,
-            from_account_id=tx.from_account_id,
-            to_account_id=tx.to_account_id,
-            reversed_transaction_id=tx.id
-        )
-
-        # Ajustar balances
-        if tx.saving_account_id:
-            account = session.exec(
-                select(SavingAccount).where(
-                    SavingAccount.id == tx.saving_account_id,
-                    SavingAccount.user_id == user_id
+        # ✅ Si es transferencia, buscar y agregar la transacción complementaria
+        if tx.transfer_group_id:
+            complementary_tx = session.exec(
+                select(Transaction).where(
+                    Transaction.transfer_group_id == tx.transfer_group_id,
+                    Transaction.id != tx.id,
+                    Transaction.user_id == user_id,
+                    Transaction.is_cancelled == False
                 )
             ).first()
-            if account:
-                if inverse_type == TransactionType.income:
-                    account.balance += inverse_amount
-                else:
-                    if account.balance < inverse_amount:
-                        raise HTTPException(status_code=400, detail="Fondos insuficientes para reversar.")
-                    account.balance -= inverse_amount
-                session.add(account)
+            if complementary_tx:
+                if complementary_tx.is_cancelled:
+                    raise HTTPException(status_code=400, detail="La transacción complementaria de la transferencia ya está cancelada.")
+                transactions_to_reverse.append(complementary_tx)
 
-        # Marcar como cancelada
-        tx.is_cancelled = True
-        session.add(tx)
+        reversed_transactions = []
 
-        # Guardar reversa
-        session.add(reversed_tx)
-        session.commit()
-        session.refresh(reversed_tx)
+        for t in transactions_to_reverse:
+            inverse_type = TransactionType.expense if t.type == TransactionType.income else TransactionType.income
+            inverse_amount = t.amount
 
-        return reversed_tx
+            reversed_tx = Transaction(
+                user_id=user_id,
+                amount=inverse_amount,
+                type=inverse_type,
+                transaction_fee=0.0,
+                description=f"Reversión de transacción #{t.id}: {t.description}",
+                date=datetime.utcnow(),
+                category_id=t.category_id,
+                saving_account_id=t.saving_account_id,
+                from_account_id=t.from_account_id,
+                to_account_id=t.to_account_id,
+                transfer_group_id=t.transfer_group_id,
+                reversed_transaction_id=t.id
+            )
+
+            # Ajustar balances
+            if t.saving_account_id:
+                account = session.exec(
+                    select(SavingAccount).where(
+                        SavingAccount.id == t.saving_account_id,
+                        SavingAccount.user_id == user_id
+                    )
+                ).first()
+                if account:
+                    if inverse_type == TransactionType.income:
+                        account.balance += inverse_amount
+                    else:
+                        if account.balance < inverse_amount:
+                            raise HTTPException(status_code=400, detail=f"Fondos insuficientes en la cuenta {account.name} para reversar.")
+                        account.balance -= inverse_amount
+                    session.add(account)
+
+            # Marcar original como cancelada
+            t.is_cancelled = True
+            session.add(t)
+
+            # Guardar reversa
+            session.add(reversed_tx)
+            session.commit()
+            session.refresh(reversed_tx)
+
+            reversed_transactions.append(reversed_tx)
+
+        # ✅ Convertir la reversa principal a Pydantic antes de retornar
+        return TransactionRead.model_validate(reversed_transactions[0], from_attributes=True)

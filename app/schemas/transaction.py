@@ -1,3 +1,4 @@
+from uuid import UUID
 from pydantic import BaseModel, ConfigDict
 from typing import Optional
 from datetime import datetime
@@ -23,6 +24,7 @@ class TransactionRead(TransactionCreate):
     reversed_transaction_id: Optional[int] = None
     debt_id: Optional[int] = None
     source_type: Optional[str] = None
+    transfer_group_id: Optional[UUID] = None
 
     model_config = ConfigDict(from_attributes=True)
 

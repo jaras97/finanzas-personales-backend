@@ -26,6 +26,7 @@ class Transaction(SQLModel, table=True):
     debt_id: Optional[int] = Field(default=None, foreign_key="debt.id")
     debt: Optional["Debt"] = Relationship(back_populates="transactions")
     source_type: Optional[str] = Field(default=None, nullable=True)
+    transfer_group_id: Optional[UUID] = Field(default=None, index=True)
     
     
 

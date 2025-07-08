@@ -80,9 +80,7 @@ def get_summary(
 
             transactions = transactions_saving + transactions_credit_card
 
-            print(f"Processing {len(transactions)} transactions for currency {currency}:")
-            for i, tx in enumerate(transactions, 1):
-                print(f"  {i}. {tx}")
+          
 
             total_income = 0.0
             total_expense = 0.0

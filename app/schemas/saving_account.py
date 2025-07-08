@@ -25,3 +25,7 @@ class SavingAccountWithdraw(BaseModel):
 class SavingAccountDeposit(BaseModel):
     amount: Annotated[float, Field(gt=0, description="Monto a depositar")]
     description: Optional[str] = None
+
+class SavingAccountUpdate(BaseModel):
+    name: Optional[str] = None
+    type: Optional[str] = None

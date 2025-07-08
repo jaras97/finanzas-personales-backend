@@ -5,7 +5,7 @@ from typing import List
 
 from app.database import engine
 from app.models.saving_account import SavingAccount, SavingAccountStatus
-from app.schemas.saving_account import SavingAccountCreate, SavingAccountDeposit, SavingAccountRead, SavingAccountWithdraw
+from app.schemas.saving_account import SavingAccountCreate, SavingAccountDeposit, SavingAccountRead, SavingAccountUpdate, SavingAccountWithdraw
 from app.core.security import get_current_user, get_current_user_with_subscription_check
 from app.schemas.transaction import TransactionWithCategoryRead
 from sqlalchemy.orm import joinedload
@@ -51,7 +51,7 @@ def list_saving_accounts(user_id: UUID = Depends(get_current_user_with_subscript
 @router.put("/{account_id}", response_model=SavingAccountRead)
 def update_saving_account(
     account_id: int,
-    account_data: SavingAccountCreate,
+    account_data: SavingAccountUpdate,  
     user_id: UUID = Depends(get_current_user_with_subscription_check),
 ):
     with Session(engine) as session:
@@ -62,13 +62,16 @@ def update_saving_account(
         if not account:
             raise HTTPException(status_code=404, detail="Cuenta de ahorro no encontrada")
 
-        account.name = account_data.name
-        account.balance = account_data.balance
-        account.type = account_data.type
+        if account_data.name is not None:
+            account.name = account_data.name
+
+        if account_data.type is not None:
+            account.type = account_data.type
 
         session.add(account)
         session.commit()
         session.refresh(account)
+
         return account
 
 
