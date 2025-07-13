@@ -42,6 +42,7 @@ def get_summary(
                 .where(Transaction.date >= datetime.combine(start_date, datetime.min.time()))
                 .where(Transaction.date <= datetime.combine(end_date, datetime.max.time()))
                 .where(Transaction.is_cancelled == False)
+                .where(Transaction.reversed_transaction_id.is_(None))
                 .where(SavingAccount.currency == currency)
                 .where(
                     or_(

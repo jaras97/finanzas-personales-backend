@@ -56,7 +56,10 @@ def update_saving_account(
 ):
     with Session(engine) as session:
         account = session.exec(
-            select(SavingAccount).where(SavingAccount.id == account_id, SavingAccount.user_id == user_id)
+            select(SavingAccount).where(
+                SavingAccount.id == account_id,
+                SavingAccount.user_id == user_id
+            )
         ).first()
 
         if not account:
@@ -65,7 +68,20 @@ def update_saving_account(
         if account_data.name is not None:
             account.name = account_data.name
 
-        if account_data.type is not None:
+        if account_data.type is not None and account_data.type != account.type:
+            # Verifica si ya existen transacciones asociadas
+            has_transactions = session.exec(
+                select(Transaction)
+                .where(Transaction.saving_account_id == account.id)
+                .limit(1)
+            ).first() is not None
+
+            if has_transactions:
+                raise HTTPException(
+                    status_code=400,
+                    detail="No puedes cambiar el tipo de cuenta porque ya tiene transacciones asociadas."
+                )
+
             account.type = account_data.type
 
         session.add(account)
@@ -239,3 +255,29 @@ def get_account_transactions(
             TransactionWithCategoryRead.model_validate(t, from_attributes=True)
             for t in transactions
         ]
+    
+@router.get("/{account_id}/has-transactions")
+def check_if_account_has_transactions(
+    account_id: int,
+    user_id: UUID = Depends(get_current_user_with_subscription_check),
+):
+    with Session(engine) as session:
+        # Verifica si la cuenta le pertenece al usuario
+        account = session.exec(
+            select(SavingAccount).where(
+                SavingAccount.id == account_id,
+                SavingAccount.user_id == user_id
+            )
+        ).first()
+
+        if not account:
+            raise HTTPException(status_code=404, detail="Cuenta no encontrada")
+
+        # Consulta si hay transacciones asociadas
+        transaction_exists = session.exec(
+            select(Transaction)
+            .where(Transaction.saving_account_id == account_id)
+            .limit(1)
+        ).first() is not None
+
+        return {"hasTransactions": transaction_exists}
