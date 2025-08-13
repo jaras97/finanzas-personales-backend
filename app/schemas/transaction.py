@@ -55,3 +55,7 @@ class ReverseRequest(BaseModel):
 
 class TransactionDescriptionUpdate(BaseModel):
     description: str
+
+class TransactionUpdateLimited(BaseModel):
+    description: Optional[str] = None
+    category_id: Optional[int] = None
