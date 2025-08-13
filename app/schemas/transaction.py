@@ -25,6 +25,7 @@ class TransactionRead(TransactionCreate):
     debt_id: Optional[int] = None
     source_type: Optional[str] = None
     transfer_group_id: Optional[UUID] = None
+    reversal_note: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -33,7 +34,7 @@ class TransactionWithCategoryRead(TransactionRead):
     saving_account: Optional[SavingAccountRead] = None
     from_account: Optional[SavingAccountRead] = None
     to_account: Optional[SavingAccountRead] = None
-    debt: Optional[DebtRead] = None  # 🚩 reemplaza debt_name por objeto completo
+    debt: Optional[DebtRead] = None  
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -48,3 +49,9 @@ class TransferCreate(BaseModel):
 class RegisterYieldCreate(BaseModel):
     amount: float
     description: Optional[str] = "Rendimiento de inversión"
+
+class ReverseRequest(BaseModel):
+    note: Optional[str] = None
+
+class TransactionDescriptionUpdate(BaseModel):
+    description: str

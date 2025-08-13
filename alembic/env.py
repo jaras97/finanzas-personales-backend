@@ -1,6 +1,7 @@
 from logging.config import fileConfig
 import os
 
+from dotenv import load_dotenv
 from sqlalchemy import engine_from_config, pool
 from alembic import context
 from sqlmodel import SQLModel
@@ -9,10 +10,13 @@ from sqlmodel import SQLModel
 # Alembic Config
 config = context.config
 
+load_dotenv()
+
 # ✅ Cargar DATABASE_URL de variables de entorno de forma segura
 database_url = os.environ.get("DATABASE_URL")
 if database_url:
-    config.set_main_option("sqlalchemy.url", "postgresql://postgres:Televisor1980@db.yinfwgmqqafyneerlrbp.supabase.co:5432/postgres")
+    # config.set_main_option("sqlalchemy.url", "postgresql://postgres:Televisor1980@db.yinfwgmqqafyneerlrbp.supabase.co:5432/postgres")
+    config.set_main_option("sqlalchemy.url","postgresql://postgres:Televisor1980@db.yinfwgmqqafyneerlrbp.supabase.co:5432/postgres")
 
 # Configuración de logging
 if config.config_file_name is not None:

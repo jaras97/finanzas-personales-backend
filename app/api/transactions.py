@@ -7,7 +7,7 @@ from app.models.category import Category
 from app.models.enums import TransactionType
 from app.models.saving_account import SavingAccount, SavingAccountStatus, SavingAccountType
 from app.models.transaction import Transaction
-from app.schemas.transaction import RegisterYieldCreate, TransactionCreate, TransactionRead, TransferCreate
+from app.schemas.transaction import RegisterYieldCreate, TransactionCreate, TransactionDescriptionUpdate, TransactionRead, TransferCreate
 from app.core.security import get_current_user, get_current_user_with_subscription_check
 from datetime import datetime
 from typing import Optional, List
@@ -257,6 +257,7 @@ def list_transactions_with_category(
     source: Optional[str] = Query(None),  # ✅ nuevo filtro
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
+    include_reversals: bool = Query(False)
 ):
     with Session(engine) as session:
         query = select(Transaction).where(Transaction.user_id == user_id)
@@ -275,6 +276,9 @@ def list_transactions_with_category(
             query = query.where(Transaction.debt_id == None)
         elif source == "credit_card":
             query = query.where(Transaction.debt_id != None)
+
+        if not include_reversals:
+            query = query.where(Transaction.reversed_transaction_id == None)
 
         query = query.options(
             joinedload(Transaction.category),
@@ -303,85 +307,85 @@ def list_transactions_with_category(
             "totalPages": total_pages
         }
     
-@router.put("/{transaction_id}", response_model=TransactionRead)
-def update_transaction(
-    transaction_id: int,
-    transaction_data: TransactionCreate,
-    user_id: UUID = Depends(get_current_user_with_subscription_check)
-):
-    with Session(engine) as session:
-        transaction = session.exec(
-            select(Transaction).where(
-                Transaction.id == transaction_id,
-                Transaction.user_id == user_id
-            )
-        ).first()
+# @router.put("/{transaction_id}", response_model=TransactionRead)
+# def update_transaction(
+#     transaction_id: int,
+#     transaction_data: TransactionCreate,
+#     user_id: UUID = Depends(get_current_user_with_subscription_check)
+# ):
+#     with Session(engine) as session:
+#         transaction = session.exec(
+#             select(Transaction).where(
+#                 Transaction.id == transaction_id,
+#                 Transaction.user_id == user_id
+#             )
+#         ).first()
 
-        if not transaction:
-            raise HTTPException(status_code=404, detail="Transacción no encontrada")
+#         if not transaction:
+#             raise HTTPException(status_code=404, detail="Transacción no encontrada")
         
-        if transaction.is_cancelled:
-            raise HTTPException(status_code=400, detail="No se puede editar una transacción cancelada")
+#         if transaction.is_cancelled:
+#             raise HTTPException(status_code=400, detail="No se puede editar una transacción cancelada")
 
-        # 🚩 Bloquear edición si es reversa
-        if transaction.reversed_transaction_id:
-            raise HTTPException(status_code=400, detail="No se puede editar una transacción de reversa")
+#         # 🚩 Bloquear edición si es reversa
+#         if transaction.reversed_transaction_id:
+#             raise HTTPException(status_code=400, detail="No se puede editar una transacción de reversa")
 
-        if transaction.source_type is not None:
-            raise HTTPException(status_code=400, detail="No se puede editar una transacción generada automáticamente")
-        # Validar categoría
-        category = session.exec(
-            select(Category).where(
-                Category.id == transaction_data.category_id,
-                Category.user_id == user_id
-            )
-        ).first()
+#         if transaction.source_type is not None:
+#             raise HTTPException(status_code=400, detail="No se puede editar una transacción generada automáticamente")
+#         # Validar categoría
+#         category = session.exec(
+#             select(Category).where(
+#                 Category.id == transaction_data.category_id,
+#                 Category.user_id == user_id
+#             )
+#         ).first()
 
-        if not category:
-            raise HTTPException(status_code=400, detail="Categoría inválida")
+#         if not category:
+#             raise HTTPException(status_code=400, detail="Categoría inválida")
 
-        # Validar nueva cuenta
-        new_account = None
-        if transaction_data.saving_account_id is not None:
-            new_account = session.exec(
-                select(SavingAccount).where(
-                    SavingAccount.id == transaction_data.saving_account_id,
-                    SavingAccount.user_id == user_id
-                )
-            ).first()
-            if not new_account:
-                raise HTTPException(status_code=400, detail="Cuenta de ahorro inválida")
+#         # Validar nueva cuenta
+#         new_account = None
+#         if transaction_data.saving_account_id is not None:
+#             new_account = session.exec(
+#                 select(SavingAccount).where(
+#                     SavingAccount.id == transaction_data.saving_account_id,
+#                     SavingAccount.user_id == user_id
+#                 )
+#             ).first()
+#             if not new_account:
+#                 raise HTTPException(status_code=400, detail="Cuenta de ahorro inválida")
 
-        # Revertir balance de la cuenta anterior
-        if transaction.saving_account_id is not None:
-            previous_account = session.get(SavingAccount, transaction.saving_account_id)
-            if previous_account:
-                if transaction.type == TransactionType.income:
-                    previous_account.balance -= transaction.amount
-                elif transaction.type == TransactionType.expense:
-                    previous_account.balance += transaction.amount
-                session.add(previous_account)
+#         # Revertir balance de la cuenta anterior
+#         if transaction.saving_account_id is not None:
+#             previous_account = session.get(SavingAccount, transaction.saving_account_id)
+#             if previous_account:
+#                 if transaction.type == TransactionType.income:
+#                     previous_account.balance -= transaction.amount
+#                 elif transaction.type == TransactionType.expense:
+#                     previous_account.balance += transaction.amount
+#                 session.add(previous_account)
 
-        # Aplicar balance a la nueva cuenta
-        if new_account is not None:
-            if transaction_data.type == TransactionType.income:
-                new_account.balance += transaction_data.amount
-            elif transaction_data.type == TransactionType.expense:
-                new_account.balance -= transaction_data.amount
-            session.add(new_account)
+#         # Aplicar balance a la nueva cuenta
+#         if new_account is not None:
+#             if transaction_data.type == TransactionType.income:
+#                 new_account.balance += transaction_data.amount
+#             elif transaction_data.type == TransactionType.expense:
+#                 new_account.balance -= transaction_data.amount
+#             session.add(new_account)
 
-        # Actualizar transacción
-        transaction.amount = transaction_data.amount
-        transaction.category_id = transaction_data.category_id
-        transaction.description = transaction_data.description
-        transaction.type = transaction_data.type
-        # transaction.date = transaction_data.date
-        transaction.saving_account_id = transaction_data.saving_account_id
+#         # Actualizar transacción
+#         transaction.amount = transaction_data.amount
+#         transaction.category_id = transaction_data.category_id
+#         transaction.description = transaction_data.description
+#         transaction.type = transaction_data.type
+#         # transaction.date = transaction_data.date
+#         transaction.saving_account_id = transaction_data.saving_account_id
 
-        session.add(transaction)
-        session.commit()
-        session.refresh(transaction)
-        return transaction
+#         session.add(transaction)
+#         session.commit()
+#         session.refresh(transaction)
+#         return transaction
 
 
 @router.delete("/{transaction_id}")
@@ -431,9 +435,17 @@ def delete_transaction(
 
         return {"message": "Transacción eliminada correctamente"}
     
+# app/api/transactions.py (o donde esté tu router)
+from app.schemas.transaction import TransactionRead, TransactionWithCategoryRead, ReverseRequest
+
+def _build_reversal_description(original: Transaction, note: Optional[str]) -> str:
+    base = f"Reversión de transacción #{original.id}: {original.description or ''}".strip()
+    return f"{base} | Nota: {note}" if note else base
+
 @router.post("/{transaction_id}/reverse", response_model=TransactionRead)
 def reverse_transaction(
     transaction_id: int,
+    data: ReverseRequest,  # 👈 recibe nota en el body
     user_id: UUID = Depends(get_current_user_with_subscription_check),
 ):
     with Session(engine) as session:
@@ -446,19 +458,16 @@ def reverse_transaction(
 
         if not tx:
             raise HTTPException(status_code=404, detail="Transacción no encontrada.")
-
         if tx.is_cancelled:
             raise HTTPException(status_code=400, detail="Esta transacción ya está cancelada.")
-
         if tx.reversed_transaction_id:
             raise HTTPException(status_code=400, detail="Esta transacción es una reversa y no puede ser reversada nuevamente.")
-
         if tx.type not in [TransactionType.income, TransactionType.expense]:
             raise HTTPException(status_code=400, detail="Solo se pueden revertir ingresos o gastos.")
 
         transactions_to_reverse = [tx]
 
-        # ✅ Si es transferencia, buscar y agregar la transacción complementaria
+        # Complementaria si es transferencia “emparejada”
         if tx.transfer_group_id:
             complementary_tx = session.exec(
                 select(Transaction).where(
@@ -484,14 +493,15 @@ def reverse_transaction(
                 amount=inverse_amount,
                 type=inverse_type,
                 transaction_fee=0.0,
-                description=f"Reversión de transacción #{t.id}: {t.description}",
+                description=_build_reversal_description(t, data.note),
                 date=datetime.utcnow(),
                 category_id=t.category_id,
                 saving_account_id=t.saving_account_id,
                 from_account_id=t.from_account_id,
                 to_account_id=t.to_account_id,
                 transfer_group_id=t.transfer_group_id,
-                reversed_transaction_id=t.id
+                reversed_transaction_id=t.id,
+                reversal_note=data.note,  # 👈 guarda la nota también en la reversa
             )
 
             # Ajustar balances
@@ -511,16 +521,44 @@ def reverse_transaction(
                         account.balance -= inverse_amount
                     session.add(account)
 
-            # Marcar original como cancelada
+            # Marcar original como cancelada y guardar la nota en la original también
             t.is_cancelled = True
+            t.reversal_note = data.note
             session.add(t)
 
-            # Guardar reversa
             session.add(reversed_tx)
             session.commit()
             session.refresh(reversed_tx)
-
             reversed_transactions.append(reversed_tx)
 
-        # ✅ Convertir la reversa principal a Pydantic antes de retornar
         return TransactionRead.model_validate(reversed_transactions[0], from_attributes=True)
+    
+
+@router.patch("/{transaction_id}/description", response_model=TransactionRead)
+def update_transaction_description(
+    transaction_id: int,
+    payload: TransactionDescriptionUpdate,
+    user_id: UUID = Depends(get_current_user_with_subscription_check),
+):
+    with Session(engine) as session:
+        tx = session.exec(
+            select(Transaction).where(
+                Transaction.id == transaction_id,
+                Transaction.user_id == user_id
+            )
+        ).first()
+        if not tx:
+            raise HTTPException(status_code=404, detail="Transacción no encontrada")
+        if tx.is_cancelled:
+            raise HTTPException(status_code=400, detail="No se puede editar una transacción cancelada")
+        if tx.reversed_transaction_id:
+            raise HTTPException(status_code=400, detail="No se puede editar una transacción de reversa")
+        if tx.source_type is not None:
+            raise HTTPException(status_code=400, detail="No se puede editar una transacción generada automáticamente")
+
+        tx.description = payload.description
+        session.add(tx)
+        session.commit()
+        session.refresh(tx)
+        return TransactionRead.model_validate(tx, from_attributes=True)
+
