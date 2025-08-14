@@ -59,3 +59,4 @@ class TransactionDescriptionUpdate(BaseModel):
 class TransactionUpdateLimited(BaseModel):
     description: Optional[str] = None
     category_id: Optional[int] = None
+    date: Optional[datetime] = None 

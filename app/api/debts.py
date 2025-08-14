@@ -19,6 +19,17 @@ from app.utils.account_helpers import update_account_balance
 
 router = APIRouter(prefix="/debts", tags=["debts"])
 
+def debt_has_transactions(session: Session, debt_id: int) -> bool:
+    tx_exists = session.exec(
+        select(Transaction.id).where(Transaction.debt_id == debt_id).limit(1)
+    ).first() is not None
+    if tx_exists:
+        return True
+    dtx_exists = session.exec(
+        select(DebtTransaction.id).where(DebtTransaction.debt_id == debt_id).limit(1)
+    ).first() is not None
+    return dtx_exists
+
 
 @router.post("/", response_model=DebtRead)
 def create_debt(
@@ -40,171 +51,115 @@ def get_debts(user_id: UUID = Depends(get_current_user_with_subscription_check))
         debts_read = []
 
         for debt in debts:
-            # Calculamos el conteo de transacciones sin traer todas las transacciones
-            transactions_count = session.exec(
+            tx_count = session.exec(
                 select(func.count()).select_from(Transaction).where(Transaction.debt_id == debt.id)
             ).one()
+            dtx_count = session.exec(
+                select(func.count()).select_from(DebtTransaction).where(DebtTransaction.debt_id == debt.id)
+            ).one()
+            total_count = (tx_count or 0) + (dtx_count or 0)
 
-            # Mapeamos manualmente para incluir transactions_count
             debt_dict = debt.dict()
-            debt_dict["transactions_count"] = transactions_count
+            debt_dict["transactions_count"] = total_count
             debts_read.append(DebtRead(**debt_dict))
 
         return debts_read
     
 
 @router.put("/{debt_id}", response_model=DebtRead)
-def update_debt(
-    debt_id: int,
-    debt_data: DebtCreate,
-    user_id: UUID = Depends(get_current_user_with_subscription_check),
-):
-    
+def update_debt(debt_id: int, debt_data: DebtCreate, user_id: UUID = Depends(get_current_user_with_subscription_check)):
     with Session(engine) as session:
-        debt = session.exec(
-            select(Debt).where(Debt.id == debt_id, Debt.user_id == user_id)
-        ).first()
-
+        debt = session.exec(select(Debt).where(Debt.id == debt_id, Debt.user_id == user_id)).first()
         if not debt:
             raise HTTPException(status_code=404, detail="Deuda no encontrada")
 
-        # Verificar si la deuda tiene transacciones asociadas
-        transactions_exist = session.exec(
-            select(Transaction).where(Transaction.debt_id == debt_id)
-        ).first() is not None
-
-        if transactions_exist:
-            # Bloquear edición de currency si hay transacciones
+        if debt_has_transactions(session, debt_id):
             if debt_data.currency != debt.currency:
-                raise HTTPException(
-                    status_code=400,
-                    detail="No puedes cambiar la moneda de la deuda porque tiene transacciones asociadas."
-                )
-            # Bloquear edición de total_amount si hay transacciones
+                raise HTTPException(400, "No puedes cambiar la moneda: la deuda tiene movimientos.")
             if debt_data.total_amount != debt.total_amount:
-                raise HTTPException(
-                    status_code=400,
-                    detail="No puedes cambiar el monto total de la deuda porque tiene transacciones asociadas."
-                )
+                raise HTTPException(400, "No puedes cambiar el monto total: la deuda tiene movimientos.")
 
-        # Permitir cambios seguros
         debt.name = debt_data.name
         debt.interest_rate = debt_data.interest_rate
         debt.due_date = debt_data.due_date
-        debt.currency = debt_data.currency  # Se mantiene igual o se actualiza si no hay transacciones
-        debt.total_amount = debt_data.total_amount  # Igual
+        debt.currency = debt_data.currency
+        debt.total_amount = debt_data.total_amount
 
-        session.add(debt)
-        session.commit()
-        session.refresh(debt)
+        session.add(debt); session.commit(); session.refresh(debt)
 
-        # ✅ Calcular transactions_count de forma consistente
-        transactions_count = session.exec(
-            select(func.count()).select_from(Transaction).where(Transaction.debt_id == debt_id)
-        ).one()
-
-        # ✅ Retornar de forma compatible con DebtRead
-        debt_dict = debt.dict()
-        debt_dict["transactions_count"] = transactions_count
+        tx_count = session.exec(select(func.count()).select_from(Transaction).where(Transaction.debt_id == debt_id)).one()
+        dtx_count = session.exec(select(func.count()).select_from(DebtTransaction).where(DebtTransaction.debt_id == debt_id)).one()
+        debt_dict = debt.dict(); debt_dict["transactions_count"] = (tx_count or 0) + (dtx_count or 0)
         return DebtRead(**debt_dict)
 
 
-@router.delete("/{debt_id}")
-def delete_debt(
-    debt_id: int,
-    user_id: UUID = Depends(get_current_user_with_subscription_check),
-):
-    
-    with Session(engine) as session:
-        debt = session.exec(
-            select(Debt).where(Debt.id == debt_id, Debt.user_id == user_id)
-        ).first()
 
+@router.delete("/{debt_id}")
+def delete_debt(debt_id: int, user_id: UUID = Depends(get_current_user_with_subscription_check)):
+    with Session(engine) as session:
+        debt = session.exec(select(Debt).where(Debt.id == debt_id, Debt.user_id == user_id)).first()
         if not debt:
             raise HTTPException(status_code=404, detail="Deuda no encontrada")
-        if debt.total_amount > 0:
-            raise HTTPException(
-                status_code=400,
-                detail="No puedes eliminar una deuda con saldo pendiente."
-            )
 
-        session.delete(debt)
-        session.commit()
+        if debt_has_transactions(session, debt_id):
+            raise HTTPException(400, "No puedes eliminar esta deuda porque tiene movimientos asociados.")
+
+        session.delete(debt); session.commit()
         return {"message": "Deuda eliminada correctamente"}
+
     
 @router.post("/{debt_id}/pay", response_model=TransactionRead)
-def pay_debt(
-    debt_id: int,
-    payment: DebtPayment,
-    user_id: UUID = Depends(get_current_user_with_subscription_check)
-):
-  
+def pay_debt(debt_id: int, payment: DebtPayment, user_id: UUID = Depends(get_current_user_with_subscription_check)):
     if payment.amount <= 0:
-        raise HTTPException(status_code=400, detail="El monto debe ser mayor a cero.")
+        raise HTTPException(400, "El monto debe ser mayor a cero.")
 
     with Session(engine) as session:
-        # Validar la deuda
-        debt = session.exec(
-            select(Debt).where(Debt.id == debt_id, Debt.user_id == user_id)
-        ).first()
+        debt = session.exec(select(Debt).where(Debt.id == debt_id, Debt.user_id == user_id)).first()
         if not debt:
-            raise HTTPException(status_code=404, detail="Deuda no encontrada")
-
-        # Validar la cuenta
-        account = session.exec(
-            select(SavingAccount).where(
-                SavingAccount.id == payment.saving_account_id,
-                SavingAccount.user_id == user_id
-            )
-        ).first()
-        if not account:
-            raise HTTPException(status_code=400, detail="Cuenta inválida")
+            raise HTTPException(404, "Deuda no encontrada")
         
-        if account.currency != debt.currency:
+        EPS = 0.01
+        if payment.amount - debt.total_amount > EPS:
             raise HTTPException(
                 status_code=400,
-                detail="No puedes pagar una deuda con una cuenta de distinta moneda en este momento."
+                detail=f"El monto a pagar ({payment.amount}) excede el saldo pendiente ({debt.total_amount}).",
             )
 
+        account = session.exec(select(SavingAccount).where(SavingAccount.id == payment.saving_account_id, SavingAccount.user_id == user_id)).first()
+        if not account:
+            raise HTTPException(400, "Cuenta inválida")
+        if account.status != "active":
+            raise HTTPException(400, "No puedes pagar con una cuenta cerrada.")
+        if account.currency != debt.currency:
+            raise HTTPException(400, "Monedas distintas entre cuenta y deuda.")
         if account.balance < payment.amount:
-            raise HTTPException(status_code=400, detail="Saldo insuficiente")
+            raise HTTPException(400, "Saldo insuficiente")
 
-        # Crear transacción
         tx = Transaction(
-            user_id=user_id,
-            amount=payment.amount,
-            type=TransactionType.expense,
-            saving_account_id=payment.saving_account_id,
-            date=payment.date or datetime.utcnow(),
-            description=payment.description or f"Pago de deuda: {debt.name}",
-            debt_id=debt.id,
-            source_type="debt_payment",
+            user_id=user_id, amount=payment.amount, type=TransactionType.expense,
+            saving_account_id=payment.saving_account_id, date=payment.date or datetime.utcnow(),
+            description=payment.description or f"Pago de deuda: {debt.name}", debt_id=debt.id, source_type="debt_payment",
         )
         session.add(tx)
+        session.add(DebtTransaction(
+            user_id=user_id, debt_id=debt.id, amount=payment.amount,
+            type=DebtTransactionType.payment, description=payment.description or f"Pago de deuda: {debt.name}",
+            date=payment.date or datetime.utcnow(),
+        ))
 
-        debt_tx = DebtTransaction(
-        user_id=user_id,
-        debt_id=debt.id,
-        amount=payment.amount,
-        type=DebtTransactionType.payment,
-        description=payment.description or f"Pago de deuda: {debt.name}",
-        date=payment.date or datetime.utcnow()
-        )
-        session.add(debt_tx)
-
-        # Actualizar balance de la cuenta
         update_account_balance(session, payment.saving_account_id, -payment.amount)
 
-        # Reducir el monto de la deuda
         debt.total_amount -= payment.amount
-        if debt.total_amount <= 0.01:  # margen de tolerancia
+        if debt.total_amount <= 0.01:
             debt.total_amount = 0.0
-            debt.status = "closed"
+            # ✅ Solo préstamos se auto-cierran; tarjetas quedan activas
+            if debt.kind == DebtKind.loan:
+                debt.status = "closed"
         session.add(debt)
 
-        session.commit()
-        session.refresh(tx)
+        session.commit(); session.refresh(tx)
         return tx
+
     
 @router.post("/{debt_id}/add-charge", response_model=DebtRead)
 def add_charge_to_debt(
@@ -317,3 +272,29 @@ def register_credit_card_purchase(
         session.refresh(tx)
 
         return tx
+    
+@router.post("/{debt_id}/close")
+def close_debt(debt_id: int, user_id: UUID = Depends(get_current_user_with_subscription_check)):
+    with Session(engine) as session:
+        debt = session.exec(select(Debt).where(Debt.id == debt_id, Debt.user_id == user_id)).first()
+        if not debt:
+            raise HTTPException(404, "Deuda no encontrada")
+        if debt.total_amount != 0:
+            raise HTTPException(400, "Solo puedes cerrar deudas con saldo 0.")
+        if debt.status == "closed":
+            raise HTTPException(400, "La deuda ya está cerrada.")
+
+        debt.status = "closed"; session.add(debt); session.commit()
+        return {"message": "Deuda cerrada correctamente."}
+
+@router.post("/{debt_id}/reopen")
+def reopen_debt(debt_id: int, user_id: UUID = Depends(get_current_user_with_subscription_check)):
+    with Session(engine) as session:
+        debt = session.exec(select(Debt).where(Debt.id == debt_id, Debt.user_id == user_id)).first()
+        if not debt:
+            raise HTTPException(404, "Deuda no encontrada")
+        if debt.status != "closed":
+            raise HTTPException(400, "La deuda no está cerrada.")
+
+        debt.status = "active"; session.add(debt); session.commit()
+        return {"message": "Deuda reabierta correctamente."}

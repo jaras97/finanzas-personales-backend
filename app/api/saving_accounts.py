@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import or_
 from sqlmodel import Session, select
 from uuid import UUID
 from typing import List
@@ -15,6 +16,17 @@ from app.models.enums import TransactionType
 from datetime import datetime
 
 router = APIRouter(prefix="/saving-accounts", tags=["saving_accounts"])
+
+def account_has_transactions(session: Session, account_id: int) -> bool:
+    return session.exec(
+        select(Transaction.id).where(
+            or_(
+                Transaction.saving_account_id == account_id,
+                Transaction.from_account_id == account_id,
+                Transaction.to_account_id == account_id,
+            )
+        ).limit(1)
+    ).first() is not None
 
 
 @router.post("/", response_model=SavingAccountRead)
@@ -69,19 +81,11 @@ def update_saving_account(
             account.name = account_data.name
 
         if account_data.type is not None and account_data.type != account.type:
-            # Verifica si ya existen transacciones asociadas
-            has_transactions = session.exec(
-                select(Transaction)
-                .where(Transaction.saving_account_id == account.id)
-                .limit(1)
-            ).first() is not None
-
-            if has_transactions:
+            if account_has_transactions(session, account.id):
                 raise HTTPException(
                     status_code=400,
                     detail="No puedes cambiar el tipo de cuenta porque ya tiene transacciones asociadas."
                 )
-
             account.type = account_data.type
 
         session.add(account)
@@ -89,6 +93,7 @@ def update_saving_account(
         session.refresh(account)
 
         return account
+
 
 
 from sqlalchemy.exc import IntegrityError
@@ -109,16 +114,19 @@ def delete_saving_account(
         if not account:
             raise HTTPException(status_code=404, detail="Cuenta de ahorro no encontrada")
 
-        try:
-            session.delete(account)
-            session.commit()
-            return {"message": "Cuenta de ahorro eliminada correctamente"}
-        except IntegrityError:
-            session.rollback()
+        # Nueva regla:
+        # - Si tiene CUALQUIER movimiento (deposit/withdraw/transfer), NO se puede eliminar.
+        # - Si NO tiene movimientos, se puede eliminar AUN con saldo distinto de cero.
+        if account_has_transactions(session, account.id):
             raise HTTPException(
                 status_code=400,
                 detail="No puedes eliminar esta cuenta porque tiene transacciones asociadas."
             )
+
+        session.delete(account)
+        session.commit()
+        return {"message": "Cuenta de ahorro eliminada correctamente"}
+
     
 
 
@@ -240,7 +248,13 @@ def get_account_transactions(
 
         transactions = session.exec(
             select(Transaction)
-            .where(Transaction.saving_account_id == account_id)
+            .where(
+                or_(
+                    Transaction.saving_account_id == account_id,
+                    Transaction.from_account_id == account_id,
+                    Transaction.to_account_id == account_id,
+                )
+            )
             .options(
                 joinedload(Transaction.category),
                 joinedload(Transaction.from_account),
@@ -262,7 +276,6 @@ def check_if_account_has_transactions(
     user_id: UUID = Depends(get_current_user_with_subscription_check),
 ):
     with Session(engine) as session:
-        # Verifica si la cuenta le pertenece al usuario
         account = session.exec(
             select(SavingAccount).where(
                 SavingAccount.id == account_id,
@@ -273,11 +286,31 @@ def check_if_account_has_transactions(
         if not account:
             raise HTTPException(status_code=404, detail="Cuenta no encontrada")
 
-        # Consulta si hay transacciones asociadas
-        transaction_exists = session.exec(
-            select(Transaction)
-            .where(Transaction.saving_account_id == account_id)
-            .limit(1)
-        ).first() is not None
+        return {"hasTransactions": account_has_transactions(session, account_id)}
+    
+@router.post("/{account_id}/reopen")
+def reopen_saving_account(
+    account_id: int,
+    user_id: UUID = Depends(get_current_user_with_subscription_check),
+):
+    with Session(engine) as session:
+        account = session.exec(
+            select(SavingAccount).where(
+                SavingAccount.id == account_id,
+                SavingAccount.user_id == user_id
+            )
+        ).first()
 
-        return {"hasTransactions": transaction_exists}
+        if not account:
+            raise HTTPException(status_code=404, detail="Cuenta no encontrada.")
+
+        if account.status != SavingAccountStatus.closed:
+            raise HTTPException(status_code=400, detail="La cuenta no está cerrada.")
+
+        account.status = SavingAccountStatus.active
+        account.closed_at = None
+        session.add(account)
+        session.commit()
+
+        return {"message": "Cuenta reabierta correctamente."}
+

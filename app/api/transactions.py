@@ -11,7 +11,7 @@ from app.models.saving_account import SavingAccount, SavingAccountStatus, Saving
 from app.models.transaction import Transaction
 from app.schemas.transaction import RegisterYieldCreate, ReverseRequest, TransactionCreate, TransactionDescriptionUpdate, TransactionRead, TransactionUpdateLimited, TransferCreate
 from app.core.security import get_current_user, get_current_user_with_subscription_check
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, List
 from fastapi import Query
 from app.schemas.transaction import TransactionWithCategoryRead
@@ -317,7 +317,7 @@ def update_transaction_limited(
     data: TransactionUpdateLimited,
     user_id: UUID = Depends(get_current_user_with_subscription_check),
 ):
-    if data.description is None and data.category_id is None:
+    if data.description is None and data.category_id is None and data.date is None:
         raise HTTPException(status_code=400, detail="Nada para actualizar.")
 
     with Session(engine) as session:
@@ -331,7 +331,7 @@ def update_transaction_limited(
         if not tx:
             raise HTTPException(status_code=404, detail="Transacción no encontrada")
 
-        # Reglas de elegibilidad
+        # Reglas de elegibilidad (como ya las tienes)
         if tx.is_cancelled:
             raise HTTPException(status_code=400, detail="No se puede editar una transacción cancelada")
         if tx.reversed_transaction_id:
@@ -353,7 +353,6 @@ def update_transaction_limited(
             if not category:
                 raise HTTPException(status_code=400, detail="Categoría inválida")
 
-            # Debe ser compatible con el tipo de la transacción
             if not (
                 (category.type == CategoryType.both) or
                 (category.type == CategoryType.income and tx.type == TransactionType.income) or
@@ -363,9 +362,18 @@ def update_transaction_limited(
 
             tx.category_id = data.category_id
 
-        # Actualizar descripción (si viene)
+        # Descripción (si viene)
         if data.description is not None:
             tx.description = data.description.strip()
+
+        # Fecha (si viene)
+        if data.date is not None:
+            new_dt = data.date
+            # Si viene con zona horaria (p.ej. ISO con Z), convertir a UTC y strip tz
+            if new_dt.tzinfo is not None:
+                new_dt = new_dt.astimezone(timezone.utc).replace(tzinfo=None)
+            # Si viene naive la guardamos tal cual (asumiendo UTC naive en tu DB)
+            tx.date = new_dt
 
         session.add(tx)
         session.commit()
