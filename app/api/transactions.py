@@ -10,21 +10,16 @@ from app.models.enums import TransactionType
 from app.models.saving_account import SavingAccount, SavingAccountStatus, SavingAccountType
 from app.models.transaction import Transaction
 from app.schemas.transaction import RegisterYieldCreate, ReverseRequest, TransactionCreate, TransactionDescriptionUpdate, TransactionRead, TransactionUpdateLimited, TransferCreate
-from app.core.security import get_current_user, get_current_user_with_subscription_check
-from datetime import datetime, timezone
+from app.core.security import get_current_user_with_subscription_check
+import datetime as dt
 from typing import Optional, List
 from fastapi import Query
 from app.schemas.transaction import TransactionWithCategoryRead
 from sqlalchemy.orm import joinedload
 from sqlalchemy import func
-
-from app.utils.account_helpers import update_account_balance
 from app.utils.category_helpers import get_or_create_transfer_category
 
 router = APIRouter(prefix="/transactions", tags=["transactions"])
-
-
-from datetime import datetime
 
 @router.post("/", response_model=TransactionRead)
 def create_transaction(
@@ -77,7 +72,7 @@ def create_transaction(
         # ✅ Solución para evitar duplicidad de 'date':
         data = transaction_data.dict()
         if data.get("date") is None:
-            data["date"] = datetime.utcnow()
+            data["date"] = dt.datetime.utcnow()
 
         transaction = Transaction(
             **data,
@@ -144,7 +139,7 @@ def create_transfer(
         if from_account.balance < total_deduction:
             raise HTTPException(status_code=400, detail="Fondos insuficientes en la cuenta de origen para cubrir la transferencia y la comisión.")
 
-        now = datetime.utcnow()
+        now = dt.datetime.utcnow()
         transfer_category = get_or_create_transfer_category(session, user_id)
 
         transfer_group_id = uuid4()
@@ -239,7 +234,7 @@ def register_yield(
             description=data.description,
             type=TransactionType.income,
             saving_account_id=account_id,
-            date=datetime.utcnow(),
+            date=dt.datetime.utcnow(),
             source_type="investment_yield",
         )
         session.add(tx)
@@ -252,8 +247,8 @@ def register_yield(
 @router.get("/with-category", response_model=dict)
 def list_transactions_with_category(
     user_id: UUID = Depends(get_current_user_with_subscription_check),
-    start_date: Optional[datetime] = Query(None, alias="startDate"),
-    end_date: Optional[datetime] = Query(None, alias="endDate"),
+    start_date: Optional[dt.datetime] = Query(None, alias="startDate"),
+    end_date: Optional[dt.datetime] = Query(None, alias="endDate"),
     category_id: Optional[int] = Query(None, alias="categoryId"),
     type: Optional[TransactionType] = Query(None),
     source: Optional[str] = Query(None),  # ✅ nuevo filtro
@@ -371,7 +366,7 @@ def update_transaction_limited(
             new_dt = data.date
             # Si viene con zona horaria (p.ej. ISO con Z), convertir a UTC y strip tz
             if new_dt.tzinfo is not None:
-                new_dt = new_dt.astimezone(timezone.utc).replace(tzinfo=None)
+                new_dt = new_dt.astimezone(dt.timezone.utc).replace(tzinfo=None)
             # Si viene naive la guardamos tal cual (asumiendo UTC naive en tu DB)
             tx.date = new_dt
 
@@ -488,7 +483,7 @@ def reverse_transaction(
                 type=inverse_type,
                 transaction_fee=0.0,
                 description=_build_reversal_description(t, data.note),
-                date=datetime.utcnow(),
+                date=dt.datetime.utcnow(),
                 category_id=t.category_id,
                 saving_account_id=t.saving_account_id,
                 from_account_id=t.from_account_id,

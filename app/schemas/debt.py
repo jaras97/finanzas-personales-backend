@@ -36,3 +36,11 @@ class AddChargeRequest(BaseModel):
     amount: float
     description: Optional[str] = "Interés o cargo adicional"
     date: Optional[datetime] = None
+
+class CreditCardPurchaseCreate(BaseModel):
+    amount: float
+    category_id: int
+    description: Optional[str] = None
+    date: Optional[datetime] = None
+    merchant: Optional[str] = None         # opcional, útil a futuro
+    installments: Optional[int] = None

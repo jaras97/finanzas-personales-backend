@@ -1,4 +1,4 @@
-from datetime import datetime
+import datetime as dt
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func
 from sqlmodel import Session, select
@@ -6,12 +6,13 @@ from uuid import UUID
 from typing import List
 
 from app.database import engine
+from app.models.category import Category, CategoryType
 from app.models.debt import Debt, DebtKind
 from app.models.debt_transaction import DebtTransaction, DebtTransactionType
 from app.models.enums import TransactionType
 from app.models.saving_account import SavingAccount
 from app.models.transaction import Transaction
-from app.schemas.debt import AddChargeRequest, DebtCreate, DebtPayment, DebtRead
+from app.schemas.debt import AddChargeRequest, CreditCardPurchaseCreate, DebtCreate, DebtPayment, DebtRead
 from app.core.security import get_current_user, get_current_user_with_subscription_check
 from app.schemas.debt_transaction import DebtTransactionRead
 from app.schemas.transaction import TransactionRead
@@ -64,6 +65,31 @@ def get_debts(user_id: UUID = Depends(get_current_user_with_subscription_check))
             debts_read.append(DebtRead(**debt_dict))
 
         return debts_read
+    
+def _normalize_dt(value: dt.date | dt.datetime | str | None) -> dt.datetime:
+    """Normaliza a datetime naive en UTC."""
+    if value is None:
+        return dt.datetime.utcnow()
+
+    if isinstance(value, dt.datetime):
+        # Si viene aware, pásalo a UTC y quita tzinfo; si ya es naive, asume UTC
+        return value.astimezone(dt.timezone.utc).replace(tzinfo=None) if value.tzinfo else value
+
+    if isinstance(value, dt.date) and not isinstance(value, dt.datetime):
+        # Solo fecha → úsala a las 12:00 para evitar desbordes por tz
+        return dt.datetime.combine(value, dt.time(12, 0, 0))
+
+    if isinstance(value, str):
+        # Acepta ISO con 'Z' o con offset
+        s = value.replace("Z", "+00:00")
+        try:
+            parsed = dt.datetime.fromisoformat(s)
+        except ValueError:
+            # fallback a YYYY-MM-DD
+            parsed = dt.datetime.strptime(value, "%Y-%m-%d")
+        return _normalize_dt(parsed)
+
+    raise TypeError(f"Unsupported type for date: {type(value)!r}")
     
 
 @router.put("/{debt_id}", response_model=DebtRead)
@@ -137,14 +163,14 @@ def pay_debt(debt_id: int, payment: DebtPayment, user_id: UUID = Depends(get_cur
 
         tx = Transaction(
             user_id=user_id, amount=payment.amount, type=TransactionType.expense,
-            saving_account_id=payment.saving_account_id, date=payment.date or datetime.utcnow(),
+            saving_account_id=payment.saving_account_id, date=payment.date or dt.datetime.utcnow(),
             description=payment.description or f"Pago de deuda: {debt.name}", debt_id=debt.id, source_type="debt_payment",
         )
         session.add(tx)
         session.add(DebtTransaction(
             user_id=user_id, debt_id=debt.id, amount=payment.amount,
             type=DebtTransactionType.payment, description=payment.description or f"Pago de deuda: {debt.name}",
-            date=payment.date or datetime.utcnow(),
+            date=payment.date or dt.datetime.utcnow(),
         ))
 
         update_account_balance(session, payment.saving_account_id, -payment.amount)
@@ -191,7 +217,7 @@ def add_charge_to_debt(
             amount=data.amount,
             type="interest_charge",
             description=data.description,
-            date=data.date or datetime.utcnow(),
+            date=data.date or dt.datetime.utcnow(),
         )
         session.add(charge_tx)
 
@@ -222,55 +248,72 @@ def get_debt_transactions(
 @router.post("/{debt_id}/purchase", response_model=TransactionRead)
 def register_credit_card_purchase(
     debt_id: int,
-    purchase: AddChargeRequest,  # reutiliza schema (amount, description, date)
-    user_id: UUID = Depends(get_current_user_with_subscription_check)
+    purchase: CreditCardPurchaseCreate,
+    user_id: UUID = Depends(get_current_user_with_subscription_check),
 ):
-   
     if purchase.amount <= 0:
         raise HTTPException(status_code=400, detail="El monto debe ser positivo.")
 
     with Session(engine) as session:
         debt = session.get(Debt, debt_id)
-
         if not debt or debt.user_id != user_id:
             raise HTTPException(status_code=404, detail="Deuda no encontrada")
-        
         if debt.status != "active":
             raise HTTPException(status_code=400, detail="La deuda no está activa")
-
         if debt.kind != DebtKind.credit_card:
-            raise HTTPException(status_code=400, detail="Solo puedes registrar compras en deudas de tipo tarjeta de crédito.")
+            raise HTTPException(
+                status_code=400,
+                detail="Solo puedes registrar compras en deudas de tipo tarjeta de crédito."
+            )
 
-        # Incrementa saldo de la deuda
+        # Validar categoría (propiedad, activa y de gasto/both)
+        category = session.exec(
+            select(Category).where(
+                Category.id == purchase.category_id,
+                Category.user_id == user_id,
+                Category.is_active == True
+            )
+        ).first()
+        if not category:
+            raise HTTPException(status_code=400, detail="Categoría inválida")
+        if category.type not in (CategoryType.expense, CategoryType.both):
+            raise HTTPException(status_code=400, detail="La categoría no es de gasto")
+
+        tx_date = _normalize_dt(purchase.date)
+
+        print("tx_date:", tx_date)
+
+        # 1) Incrementar saldo pendiente de la deuda
         debt.total_amount += purchase.amount
         session.add(debt)
 
-        # Crea transacción tipo expense con debt_id
+        # 2) Registrar gasto categorizado en el libro mayor
         tx = Transaction(
             user_id=user_id,
             amount=purchase.amount,
             type=TransactionType.expense,
-            date=purchase.date or datetime.utcnow(),
+            date=tx_date,
             description=purchase.description or f"Compra con tarjeta: {debt.name}",
+            category_id=purchase.category_id,     # ✅ ahora queda categorizada
+            saving_account_id=None,               # explícito: no afecta cuenta de ahorro
             debt_id=debt.id,
-            source_type="credit_card_purchase"
+            source_type="credit_card_purchase",
         )
         session.add(tx)
 
-        # También registra en DebtTransaction como 'extra_charge'
+        # 3) Asiento en subledger de la deuda
         debt_tx = DebtTransaction(
             user_id=user_id,
             debt_id=debt.id,
             amount=purchase.amount,
             type=DebtTransactionType.extra_charge,
-            description=purchase.description or f"Compra con tarjeta: {debt.name}",
-            date=purchase.date or datetime.utcnow()
+            description=tx.description,
+            date=tx_date,
         )
         session.add(debt_tx)
 
         session.commit()
         session.refresh(tx)
-
         return tx
     
 @router.post("/{debt_id}/close")
