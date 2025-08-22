@@ -13,6 +13,7 @@ from app.core.security import get_current_user_with_subscription_check
 
 router = APIRouter(prefix="/cash-flow", tags=["cash-flow"])
 
+@router.get("", response_model=Dict[Currency, Dict[str, float]])
 @router.get("/", response_model=Dict[Currency, Dict[str, float]])
 def get_cash_flow_summary(
     user_id: UUID = Depends(get_current_user_with_subscription_check),

@@ -14,7 +14,7 @@ from app.core.security import get_current_user_with_subscription_check
 
 router = APIRouter(prefix="/categories", tags=["categories"])
 
-
+@router.post("", response_model=CategoryRead)
 @router.post("/", response_model=CategoryRead)
 def create_category(
     category_data: CategoryCreate,
@@ -46,7 +46,7 @@ def create_category(
         session.refresh(category)
         return category
 
-
+@router.get("", response_model=list[CategoryRead])
 @router.get("/", response_model=list[CategoryRead])
 def list_categories(
     user_id: UUID = Depends(get_current_user_with_subscription_check),

@@ -105,6 +105,7 @@ def delete_subscription_admin(
     return {"detail": "Suscripción eliminada correctamente"}
 
 # ✅ Listar todas las suscripciones
+@router.get("", response_model=List[SubscriptionRead])
 @router.get("/", response_model=List[SubscriptionRead])
 def list_subscriptions_admin(
     session: Session = Depends(get_session),

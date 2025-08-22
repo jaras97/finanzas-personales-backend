@@ -39,7 +39,7 @@ def _to_local_day(dt: datetime, tz: str) -> date:
         dt = dt.replace(tzinfo=timezone.utc)
     return dt.astimezone(z).date()
 
-
+@router.get("", response_model=Dict[Currency, SummaryResponse])
 @router.get("/", response_model=Dict[Currency, SummaryResponse])
 def get_summary(
     user_id: UUID = Depends(get_current_user_with_subscription_check),

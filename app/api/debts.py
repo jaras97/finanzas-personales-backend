@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func
 from sqlmodel import Session, select
 from uuid import UUID
-from typing import List
+from typing import List, Union
 
 from app.database import engine
 from app.models.category import Category, CategoryType
@@ -31,7 +31,7 @@ def debt_has_transactions(session: Session, debt_id: int) -> bool:
     ).first() is not None
     return dtx_exists
 
-
+@router.post("", response_model=DebtRead)
 @router.post("/", response_model=DebtRead)
 def create_debt(
     debt_data: DebtCreate,
@@ -44,7 +44,7 @@ def create_debt(
         session.refresh(new_debt)
         return new_debt
 
-
+@router.get("", response_model=List[DebtRead])
 @router.get("/", response_model=List[DebtRead])
 def get_debts(user_id: UUID = Depends(get_current_user_with_subscription_check)):
     with Session(engine) as session:
@@ -66,26 +66,22 @@ def get_debts(user_id: UUID = Depends(get_current_user_with_subscription_check))
 
         return debts_read
     
-def _normalize_dt(value: dt.date | dt.datetime | str | None) -> dt.datetime:
+def _normalize_dt(value: Union[dt.date, dt.datetime, str, None]) -> dt.datetime:
     """Normaliza a datetime naive en UTC."""
     if value is None:
         return dt.datetime.utcnow()
 
     if isinstance(value, dt.datetime):
-        # Si viene aware, pásalo a UTC y quita tzinfo; si ya es naive, asume UTC
         return value.astimezone(dt.timezone.utc).replace(tzinfo=None) if value.tzinfo else value
 
     if isinstance(value, dt.date) and not isinstance(value, dt.datetime):
-        # Solo fecha → úsala a las 12:00 para evitar desbordes por tz
         return dt.datetime.combine(value, dt.time(12, 0, 0))
 
     if isinstance(value, str):
-        # Acepta ISO con 'Z' o con offset
         s = value.replace("Z", "+00:00")
         try:
             parsed = dt.datetime.fromisoformat(s)
         except ValueError:
-            # fallback a YYYY-MM-DD
             parsed = dt.datetime.strptime(value, "%Y-%m-%d")
         return _normalize_dt(parsed)
 

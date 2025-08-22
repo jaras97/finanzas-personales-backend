@@ -21,6 +21,7 @@ from app.utils.category_helpers import get_or_create_transfer_category
 
 router = APIRouter(prefix="/transactions", tags=["transactions"])
 
+@router.post("", response_model=TransactionRead)
 @router.post("/", response_model=TransactionRead)
 def create_transaction(
     transaction_data: TransactionCreate,

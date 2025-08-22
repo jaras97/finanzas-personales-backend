@@ -28,7 +28,7 @@ def account_has_transactions(session: Session, account_id: int) -> bool:
         ).limit(1)
     ).first() is not None
 
-
+@router.post("", response_model=SavingAccountRead)
 @router.post("/", response_model=SavingAccountRead)
 def create_saving_account(
     account_data: SavingAccountCreate,
@@ -50,7 +50,7 @@ def create_saving_account(
         session.refresh(new_account)
         return new_account
 
-
+@router.get("", response_model=List[SavingAccountRead])
 @router.get("/", response_model=List[SavingAccountRead])
 def list_saving_accounts(user_id: UUID = Depends(get_current_user_with_subscription_check)):
     with Session(engine) as session:
