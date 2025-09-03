@@ -16,6 +16,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "https://finanzas-personal-frontend-1xt6.vercel.app",  
+        "https://www.balancedcent.com",
         "http://localhost:3000","http://localhost:3001"], 
     allow_credentials=True,
     allow_methods=["*"],
