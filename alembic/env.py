@@ -12,11 +12,10 @@ config = context.config
 
 load_dotenv()
 
-# ✅ Cargar DATABASE_URL de variables de entorno de forma segura
+# Cargar DATABASE_URL de variables de entorno
 database_url = os.environ.get("DATABASE_URL")
 if database_url:
-    # config.set_main_option("sqlalchemy.url", "postgresql://postgres:Televisor1980@db.yinfwgmqqafyneerlrbp.supabase.co:5432/postgres")
-    config.set_main_option("sqlalchemy.url","postgresql://postgres:Televisor1980@db.yinfwgmqqafyneerlrbp.supabase.co:5432/postgres")
+    config.set_main_option("sqlalchemy.url", database_url)
 
 # Configuración de logging
 if config.config_file_name is not None:
