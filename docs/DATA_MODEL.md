@@ -12,6 +12,19 @@ Todos los modelos están en `app/models/` (SQLModel). Los PKs de entidades orien
 | `created_at` | datetime | default `utcnow` |
 | `role` | str | default `"user"`; `"admin"` habilita endpoints de `subscriptions_admin.py` |
 
+## `Currency` (`app/models/currency.py`, tabla `currency`)
+
+Catálogo de monedas soportadas (desde 2026-08-22, migración `c4a2f9e6d1b3`). Reemplazó el enum fijo COP/USD/EUR — `saving_account.currency` y `debt.currency` son FKs a esta tabla, no un tipo cerrado.
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| `code` | str (PK) | ISO-4217, ej. `COP`, `USD`, `MXN` — máx. 3 caracteres |
+| `name` | str | ej. "Peso colombiano" |
+| `symbol` | str | ej. `$`, `€`, `¥` |
+| `decimal_digits` | int | default `2`; `0` para monedas sin centavos (COP, JPY, CLP, KRW, VND, PYG en el seed) |
+
+42 monedas sembradas en la migración. `GET /currencies` las expone; `app/utils/currency_helpers.py` tiene los helpers de validación (`validate_currency_code`) y de consulta (`get_user_currencies`).
+
 ## `SavingAccount` (`app/models/saving_account.py`, tabla `saving_account`)
 
 La abstracción real de "cuenta" usada en toda la app.
@@ -23,7 +36,7 @@ La abstracción real de "cuenta" usada en toda la app.
 | `name` | str | único por usuario (validado en el endpoint, no en DB) |
 | `type` | `SavingAccountType` enum | `cash` \| `bank` \| `investment` |
 | `balance` | float | default `0.0` |
-| `currency` | `Currency` enum | `COP` \| `USD` \| `EUR`, default `COP` |
+| `currency` | str (FK → `currency.code`) | default `"COP"` — cualquier código del catálogo (ver `Currency` abajo), no un enum fijo |
 | `status` | `SavingAccountStatus` enum | `active` \| `closed`, default `active` |
 | `closed_at` | datetime? | seteado al cerrar |
 
@@ -63,7 +76,7 @@ Categorías del sistema (creadas automáticamente al registrar un usuario, ver `
 | `interest_rate` | float | solo informativo, no genera acumulación automática |
 | `due_date` | date? | |
 | `status` | `DebtStatus` enum | `active` \| `closed` |
-| `currency` | `Currency` enum | default `COP` |
+| `currency` | str (FK → `currency.code`) | default `"COP"` |
 | `kind` | `DebtKind` enum | `loan` \| `credit_card`, default `loan` |
 
 Relación `transactions: List[Transaction]` (vía `Transaction.debt_id`).

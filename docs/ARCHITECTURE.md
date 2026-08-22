@@ -59,6 +59,7 @@
 
 Ver [DATA_MODEL.md](DATA_MODEL.md) para el detalle de tablas. Puntos clave de diseño:
 
+- **`Currency`** (tabla `currency`, desde 2026-08-22) es el catálogo de monedas soportadas (42 códigos ISO-4217 sembrados en la migración `c4a2f9e6d1b3`: code/name/symbol/decimal_digits). `saving_account.currency` y `debt.currency` son FKs a esta tabla — ya no un enum fijo de 3 valores. `GET /currencies` la expone. `app/utils/currency_helpers.py::validate_currency_code` valida cualquier código nuevo contra ella (400 claro en vez de un error de integridad crudo); `get_user_currencies` devuelve las monedas que un usuario realmente tiene en cuentas/deudas, usado por `summary.py`/`summary_extra.py`/`cash_flow.py` para iterar dinámicamente en vez de una lista fija — esto también arregló la inconsistencia de EUR entre `assets-summary` y `net-worth-summary` documentada antes, ya que ambos usan ahora la misma lógica.
 - **`SavingAccount`** es la cuenta real usada en la app (no `Account`, que es un modelo legacy sin uso).
 - **`Transaction`** es el ledger central; las transferencias se modelan como un par expense+income unidos por `transfer_group_id`, no con `type="transfer"`.
 - **`DebtTransaction`** es un subledger separado, solo para el historial de una deuda puntual (pagos/cargos), distinto de las filas que también se crean en `Transaction` para que esos movimientos aparezcan en los reportes generales.
@@ -82,6 +83,12 @@ Registrados aquí para no perder el contexto al retomar el proyecto.
 - ~~Token JWT persistido en `localStorage`/cookie no-httpOnly~~ — reemplazado por cookie httpOnly (ver Auth arriba); el frontend ya no toca el token.
 - ~~Sin rate limiting en login~~ — agregado (`app/core/rate_limit.py`).
 - **Pipeline de deploy roto ~1 año**: dos causas independientes, ambas confirmadas y corregidas el 2026-08-22 — (1) `alembic_version` en producción apuntaba a una revisión huérfana (`80ae2ec8da91`, de una reescritura de historial pasada) que no existe en `alembic/versions/`, haciendo fallar `alembic upgrade head` en cada `release_command`; se resolvió con `alembic stamp head --purge` (no toca datos) tras verificar que el esquema real ya coincidía con los modelos. (2) El secret `FLY_API_TOKEN` **nunca se había creado** en GitHub (repo sin secrets configurados). Con ambas corregidas, un push a `main` despliega solo — confirmado con una corrida verde de punta a punta.
+- ~~Moneda limitada a un enum fijo (COP/USD/EUR)~~ — reemplazado por un catálogo real (tabla `currency`, 42 monedas); `saving_account.currency`/`debt.currency` son FKs de texto. Ver "Modelo de dominio" arriba.
+- ~~`assets-summary` omite EUR mientras `net-worth-summary` sí lo incluye~~ — resuelto: ambos ahora iteran las mismas monedas dinámicamente (`get_user_currencies`), no listas hardcodeadas distintas entre sí.
+
+### Nota: drift de esquema entre local y producción (encontrado 2026-08-22)
+
+Antes de esta sesión, `saving_account.currency` ya era `varchar` en la base local de desarrollo pero seguía siendo el mismo enum de Postgres que `debt.currency` en producción — un drift no documentado, de origen desconocido. La primera versión de la migración de monedas solo convertía `debt.currency` (porque localmente no había nada que convertir en `saving_account`), y falló en producción al intentar `DROP TYPE currency` con la columna de `saving_account` todavía dependiendo de él. Fly abortó el deploy limpiamente (sin downtime, sin migración parcial) antes de que esto llegara a producción. Lección: no asumir que "funciona en local" prueba que una migración es segura en prod sin revisar antes el tipo real de columna en prod (`\d <tabla>` vía `flyctl ssh console`) — o, mejor, escribir la migración para que sea robusta sin importar el estado de partida (como quedó la migración `c4a2f9e6d1b3` tras el fix: castea cada columna vía `::text`, lo cual es un no-op seguro si ya era texto y la conversión real si todavía era el enum).
 
 ### Pendientes
 

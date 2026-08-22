@@ -10,6 +10,12 @@ Niveles de auth usados en las tablas:
 
 `GET /` — Pública. Health check, retorna `{"message": "Servidor de gastos personales"}`.
 
+## Monedas — `app/api/currencies.py` (prefijo `/currencies`, Auth)
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| GET | `/currencies` (`/`) | → `List[Currency]` (`code, name, symbol, decimal_digits`), las 42 monedas del catálogo, ordenadas por código. |
+
 ## Auth — `app/api/auth.py`, `app/api/auth_extra.py` (prefijo `/auth`)
 
 | Método | Ruta | Auth | Descripción |
@@ -37,7 +43,7 @@ Niveles de auth usados en las tablas:
 
 | Método | Ruta | Descripción |
 |---|---|---|
-| POST | `/saving-accounts` (`/`) | `{name, type, balance, currency}` → 400 si nombre duplicado. El `balance` inicial **no genera transacción de apertura**. |
+| POST | `/saving-accounts` (`/`) | `{name, type, balance, currency}` → 400 si nombre duplicado, 400 si `currency` no está en el catálogo (ver `/currencies`). El `balance` inicial **no genera transacción de apertura**. |
 | GET | `/saving-accounts` (`/`) | Lista cuentas del usuario. |
 | PUT | `/saving-accounts/{id}` | Renombrar libre; cambio de `type` bloqueado (400) si la cuenta ya tiene transacciones. |
 | DELETE | `/saving-accounts/{id}` | Solo si tiene **cero** transacciones asociadas (independiente del balance). |
@@ -64,7 +70,7 @@ Niveles de auth usados en las tablas:
 
 | Método | Ruta | Descripción |
 |---|---|---|
-| POST | `/debts` (`/`) | `{name, total_amount, interest_rate, due_date, currency, kind}` |
+| POST | `/debts` (`/`) | `{name, total_amount, interest_rate, due_date, currency, kind}` → 400 si `currency` no está en el catálogo. |
 | GET | `/debts` (`/`) | Lista deudas del usuario, cada una con `transactions_count`. |
 | PUT | `/debts/{id}` | Actualiza `name`/`interest_rate`/`due_date`/`currency`/`total_amount`. Cambiar `currency` o `total_amount` bloqueado (400) si ya tiene transacciones. |
 | DELETE | `/debts/{id}` | Bloqueado (400) si tiene transacciones. |
@@ -79,21 +85,21 @@ Niveles de auth usados en las tablas:
 
 | Método | Ruta | Descripción |
 |---|---|---|
-| GET | `/summary` (`/`) | Query `start_date`, `end_date` (default mes-a-la-fecha local), `tz` (IANA, default UTC) → `Dict[Currency, SummaryResponse]` (COP/USD/EUR). Incluye transacciones de cuenta (excluyendo `transfer`/`investment_yield`/`debt_payment`) + compras de tarjeta de crédito (por moneda de la deuda). Retorna `total_income`, `total_expense`, `balance`, `expense_by_category`, `income_by_category` (con %), `daily_evolution`, `top_expense_category`, `top_income_category`, `top_expense_day`, `top_income_day`, `overspending_alert`. |
+| GET | `/summary` (`/`) | Query `start_date`, `end_date` (default mes-a-la-fecha local), `tz` (IANA, default UTC) → `Dict[str, SummaryResponse]`, una entrada por cada moneda que el usuario realmente tiene en cuentas/deudas (`get_user_currencies`), no una lista fija. Incluye transacciones de cuenta (excluyendo `transfer`/`investment_yield`/`debt_payment`) + compras de tarjeta de crédito (por moneda de la deuda). Retorna `total_income`, `total_expense`, `balance`, `expense_by_category`, `income_by_category` (con %), `daily_evolution`, `top_expense_category`, `top_income_category`, `top_expense_day`, `top_income_day`, `overspending_alert`. |
 
 ## Resúmenes extra — `app/api/summary_extra.py` (prefijo `/summary-extra`, Auth+Sub)
 
 | Método | Ruta | Descripción |
 |---|---|---|
-| GET | `/summary-extra/assets-summary` | Por moneda (COP, USD — **EUR no incluido**): `total_savings` (cash+bank activas), `total_investments`, `total_assets`. |
-| GET | `/summary-extra/liabilities-summary` | Por moneda (COP, USD): `pending = total_amount - pagos`. ⚠️ El filtro de "pagos" busca `Transaction.type == "payment"`, que nunca ocurre (bug enmascarado, ver ARCHITECTURE.md) — el resultado práctico coincide con `total_amount` porque este ya se decrementa en vivo en `/debts/{id}/pay`. |
-| GET | `/summary-extra/net-worth-summary` | Por moneda (COP, USD, EUR): `total_assets`, `total_liabilities`, `net_worth`, `debt_ratio`. |
+| GET | `/summary-extra/assets-summary` | Por cada moneda en uso del usuario (`get_user_currencies`, ya no una lista fija — ver nota de "resuelto" en ARCHITECTURE.md): `total_savings` (cash+bank activas), `total_investments`, `total_assets`. |
+| GET | `/summary-extra/liabilities-summary` | Por cada moneda en uso: `pending = total_amount - pagos`. ⚠️ El filtro de "pagos" busca `Transaction.type == "payment"`, que nunca ocurre (bug enmascarado, ver ARCHITECTURE.md) — el resultado práctico coincide con `total_amount` porque este ya se decrementa en vivo en `/debts/{id}/pay`. |
+| GET | `/summary-extra/net-worth-summary` | Por cada moneda en uso: `total_assets`, `total_liabilities`, `net_worth`, `debt_ratio`. |
 
 ## Flujo de caja — `app/api/cash_flow.py` (prefijo `/cash-flow`, Auth+Sub)
 
 | Método | Ruta | Descripción |
 |---|---|---|
-| GET | `/cash-flow` (`/`) | Query `start_date`/`end_date` (default mes-a-la-fecha). Por moneda: `total_income`, `total_expense` (excluye pagos de deuda), `total_debt_payments` (separado), `net_cash_flow = income - expense - debt_payments`. |
+| GET | `/cash-flow` (`/`) | Query `start_date`/`end_date` (default mes-a-la-fecha). Por cada moneda en uso del usuario: `total_income`, `total_expense` (excluye pagos de deuda), `total_debt_payments` (separado), `net_cash_flow = income - expense - debt_payments`. |
 
 ## Suscripciones — `app/api/subscriptions.py` (prefijo `/subscriptions`)
 
