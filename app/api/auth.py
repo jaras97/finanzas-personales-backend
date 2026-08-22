@@ -94,4 +94,10 @@ def logout(response: Response):
 # Ruta protegida
 @router.get("/me")
 def read_users_me(user_id: str = Depends(get_current_user)):
-    return {"user_id": user_id}
+    with Session(engine) as session:
+        user = session.get(User, user_id)
+        if not user:
+            raise HTTPException(status_code=404, detail="Usuario no encontrado")
+        # `role` lo necesita el frontend para decidir si muestra el panel de
+        # administración. Se mantiene `user_id` por compatibilidad.
+        return {"user_id": user_id, "email": user.email, "role": user.role}
