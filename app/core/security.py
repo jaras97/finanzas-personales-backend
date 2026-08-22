@@ -3,7 +3,7 @@ from typing import Optional
 from uuid import UUID
 from jose import JWTError, jwt
 from passlib.context import CryptContext
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 
 from sqlmodel import Session, select
@@ -15,8 +15,22 @@ from app.models.subscription import Subscription
 # Manejo de contraseñas
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-# OAuth2 esquema para login
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
+ACCESS_TOKEN_COOKIE_NAME = "access_token"
+
+# auto_error=False: no rechaza la request solo porque falte el header
+# Authorization -- get_token() abajo intenta la cookie httpOnly antes de
+# rechazar. El esquema se mantiene para que Swagger/Postman sigan pudiendo
+# autenticar por header como hasta ahora.
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login", auto_error=False)
+
+
+def get_token(request: Request, header_token: Optional[str] = Depends(oauth2_scheme)) -> str:
+    if header_token:
+        return header_token
+    cookie_token = request.cookies.get(ACCESS_TOKEN_COOKIE_NAME)
+    if cookie_token:
+        return cookie_token
+    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="No autenticado")
 
 # Funciones de seguridad
 def verify_password(plain_password, hashed_password):
@@ -31,7 +45,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
-def get_current_user(token: str = Depends(oauth2_scheme)) -> UUID:
+def get_current_user(token: str = Depends(get_token)) -> UUID:
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         user_id_str: str = payload.get("sub")
@@ -43,7 +57,7 @@ def get_current_user(token: str = Depends(oauth2_scheme)) -> UUID:
 
     return user_id
 
-def get_current_user_with_subscription_check(token: str = Depends(oauth2_scheme)) -> UUID:
+def get_current_user_with_subscription_check(token: str = Depends(get_token)) -> UUID:
     user_id = get_current_user(token)
 
     with Session(engine) as session:
@@ -86,7 +100,7 @@ def get_current_user_with_subscription_check(token: str = Depends(oauth2_scheme)
     return user.id
 
 def get_current_admin_user(
-    token: str = Depends(oauth2_scheme),
+    token: str = Depends(get_token),
     session: Session = Depends(get_session)
 ) -> UUID:
     try:
