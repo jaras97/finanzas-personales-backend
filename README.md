@@ -3,6 +3,8 @@
 API REST para la app de finanzas personales **Balanced Cent**. Gestiona usuarios, cuentas de ahorro/inversión, deudas (préstamos y tarjetas de crédito), transacciones, categorías y suscripciones. Consumida por [finanzas-personal-frontend](../frontend).
 
 > Documentación detallada en [`docs/`](docs): [arquitectura](docs/ARCHITECTURE.md), [modelo de datos](docs/DATA_MODEL.md), [referencia de la API](docs/API.md).
+>
+> Transversales a ambos repos: **[pendientes](docs/PENDIENTES.md)** (incluye una acción manual crítica) y [plan de mejora](docs/PLAN_DE_MEJORA.md).
 
 ## Stack
 
