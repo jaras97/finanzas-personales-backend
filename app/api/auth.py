@@ -1,11 +1,12 @@
 from datetime import timedelta
 
-from fastapi import APIRouter, HTTPException, Depends, Response, status
+from fastapi import APIRouter, HTTPException, Depends, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlmodel import Session, select
 from app.models.user import User
 from app.schemas.user import UserCreate, UserRead
 from app.core.config import ACCESS_TOKEN_EXPIRE_MINUTES, COOKIE_DOMAIN, COOKIE_SECURE
+from app.core.rate_limit import get_client_ip, login_limiter_by_email, login_limiter_by_ip
 from app.core.security import (
     ACCESS_TOKEN_COOKIE_NAME,
     get_password_hash,
@@ -51,11 +52,24 @@ def register(user_create: UserCreate):
 
 # Login
 @router.post("/login")
-def login(response: Response, form_data: OAuth2PasswordRequestForm = Depends()):
+def login(request: Request, response: Response, form_data: OAuth2PasswordRequestForm = Depends()):
+    email_key = form_data.username.strip().lower()
+    ip_key = get_client_ip(request)
+
+    # 429 antes de tocar la BD si ya se agotó el límite -- ni siquiera
+    # verificamos la contraseña.
+    login_limiter_by_email.check(email_key)
+    login_limiter_by_ip.check(ip_key)
+
     with Session(engine) as session:
         user = session.exec(select(User).where(User.email == form_data.username)).first()
         if not user or not verify_password(form_data.password, user.hashed_password):
+            login_limiter_by_email.record_failure(email_key)
+            login_limiter_by_ip.record_failure(ip_key)
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciales incorrectas")
+
+        login_limiter_by_email.reset(email_key)
+        login_limiter_by_ip.reset(ip_key)
 
         access_token = create_access_token(data={"sub": str(user.id)})
         _set_access_token_cookie(response, access_token)
