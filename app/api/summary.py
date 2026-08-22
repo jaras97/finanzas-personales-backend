@@ -13,9 +13,10 @@ from app.models.transaction import Transaction
 from app.models.category import Category
 from app.models.enums import TransactionType
 from app.schemas.summary import SummaryResponse, CategorySummary, DailySummary
-from app.models.saving_account import Currency, SavingAccount
+from app.models.saving_account import SavingAccount
 from app.models.debt import Debt
 from app.core.security import get_current_user_with_subscription_check
+from app.utils.currency_helpers import get_user_currencies
 
 router = APIRouter(prefix="/summary", tags=["summary"])
 
@@ -39,8 +40,8 @@ def _to_local_day(dt: datetime, tz: str) -> date:
         dt = dt.replace(tzinfo=timezone.utc)
     return dt.astimezone(z).date()
 
-@router.get("", response_model=Dict[Currency, SummaryResponse])
-@router.get("/", response_model=Dict[Currency, SummaryResponse])
+@router.get("", response_model=Dict[str, SummaryResponse])
+@router.get("/", response_model=Dict[str, SummaryResponse])
 def get_summary(
     user_id: UUID = Depends(get_current_user_with_subscription_check),
     start_date: Optional[date] = Query(None),
@@ -59,9 +60,9 @@ def get_summary(
         start_utc, _ = _utc_bounds_for_local_day(start_date, tz)
         _, end_utc = _utc_bounds_for_local_day(end_date, tz)
 
-        result: Dict[Currency, SummaryResponse] = {}
+        result: Dict[str, SummaryResponse] = {}
 
-        for currency in [Currency.COP, Currency.USD, Currency.EUR]:
+        for currency in get_user_currencies(session, user_id):
             # Transacciones de cuentas (no automáticas especiales)
             query_saving = (
                 select(Transaction)

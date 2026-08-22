@@ -1,26 +1,26 @@
 # app/schemas/debt.py
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from uuid import UUID
 from typing import Optional
 from datetime import date, datetime
 
 from app.models.debt import DebtKind, DebtStatus
-from app.models.saving_account import Currency
+
 
 class DebtCreate(BaseModel):
     name: str
     total_amount: float
     interest_rate: float
     due_date: Optional[date] = None
-    currency: Currency = Currency.COP
+    currency: str = Field(default="COP", max_length=3)
     kind: DebtKind = DebtKind.loan
 
 class DebtRead(DebtCreate):
     id: int
-    status: DebtStatus         
-    currency: Currency    
-    transactions_count: Optional[int] = 0  
+    status: DebtStatus
+    currency: str
+    transactions_count: Optional[int] = 0
 
     class Config:
         orm_mode = True 

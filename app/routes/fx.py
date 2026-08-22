@@ -1,9 +1,8 @@
 # app/routes/fx.py
 from fastapi import APIRouter, HTTPException, Query
-from typing import Literal, Dict, Tuple
+from typing import Dict, Tuple
 import httpx, time
 
-Currency = Literal["COP", "USD", "EUR"]
 router = APIRouter(prefix="/fx", tags=["fx"])
 
 # Cache TTL en memoria (clave: (from,to) -> (timestamp, rate))
@@ -37,7 +36,11 @@ async def fetch_rate_open_er_api(base: str, target: str) -> float:
         raise ValueError("No rate in response")
 
 @router.get("/rate")
-async def get_rate(from_: Currency = Query(..., alias="from"), to: Currency = Query(...)):
+async def get_rate(
+    from_: str = Query(..., alias="from", min_length=3, max_length=3, pattern="^[A-Za-z]{3}$"),
+    to: str = Query(..., min_length=3, max_length=3, pattern="^[A-Za-z]{3}$"),
+):
+    from_, to = from_.upper(), to.upper()
     if from_ == to:
         return {"from": from_, "to": to, "rate": 1.0, "source": "identity", "as_of": int(time.time())}
 

@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
 from app.database import create_db_and_tables
-from app.api import auth, auth_extra, cash_flow, categories,  debts, saving_accounts, subscriptions, subscriptions_admin, summary, summary_extra, transactions
+from app.api import auth, auth_extra, cash_flow, categories, currencies, debts, saving_accounts, subscriptions, subscriptions_admin, summary, summary_extra, transactions
 from fastapi.middleware.cors import CORSMiddleware
 from app.routes.fx import router as fx_router
 
@@ -24,6 +24,7 @@ app.add_middleware(
 )
 
 app.include_router(auth.router)
+app.include_router(currencies.router)
 app.include_router(transactions.router)
 app.include_router(categories.router)
 app.include_router(saving_accounts.router)

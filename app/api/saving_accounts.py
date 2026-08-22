@@ -9,6 +9,7 @@ from app.models.saving_account import SavingAccount, SavingAccountStatus
 from app.schemas.saving_account import SavingAccountCreate, SavingAccountDeposit, SavingAccountRead, SavingAccountUpdate, SavingAccountWithdraw
 from app.core.security import get_current_user, get_current_user_with_subscription_check
 from app.schemas.transaction import TransactionWithCategoryRead
+from app.utils.currency_helpers import validate_currency_code
 from sqlalchemy.orm import joinedload
 
 from app.models.transaction import Transaction
@@ -43,7 +44,9 @@ def create_saving_account(
         ).first()
         if existing:
             raise HTTPException(status_code=400, detail="Ya tienes una cuenta con este nombre.")
-        
+
+        validate_currency_code(session, account_data.currency)
+
         new_account = SavingAccount(**account_data.dict(), user_id=user_id)
         session.add(new_account)
         session.commit()

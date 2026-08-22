@@ -1,5 +1,6 @@
 from .account import *
 from .category import *
+from .currency import *
 from .debt_transaction import *
 from .debt import *
 from .enums import *

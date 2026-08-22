@@ -7,14 +7,15 @@ from sqlalchemy.orm import joinedload
 from sqlalchemy import not_
 from app.database import engine
 from app.models.transaction import Transaction
-from app.models.saving_account import Currency, SavingAccount
+from app.models.saving_account import SavingAccount
 from app.models.enums import TransactionType
 from app.core.security import get_current_user_with_subscription_check
+from app.utils.currency_helpers import get_user_currencies
 
 router = APIRouter(prefix="/cash-flow", tags=["cash-flow"])
 
-@router.get("", response_model=Dict[Currency, Dict[str, float]])
-@router.get("/", response_model=Dict[Currency, Dict[str, float]])
+@router.get("", response_model=Dict[str, Dict[str, float]])
+@router.get("/", response_model=Dict[str, Dict[str, float]])
 def get_cash_flow_summary(
     user_id: UUID = Depends(get_current_user_with_subscription_check),
     start_date: Optional[date] = Query(None),
@@ -27,9 +28,9 @@ def get_cash_flow_summary(
         if not end_date:
             end_date = today
 
-        result: Dict[Currency, Dict[str, float]] = {}
+        result: Dict[str, Dict[str, float]] = {}
 
-        for currency in [Currency.COP, Currency.USD, Currency.EUR]:
+        for currency in get_user_currencies(session, user_id):
             query = (
                 select(Transaction)
                 .join(SavingAccount, Transaction.saving_account_id == SavingAccount.id)

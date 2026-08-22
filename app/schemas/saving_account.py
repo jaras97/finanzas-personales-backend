@@ -4,7 +4,7 @@ from datetime import datetime
 from pydantic import BaseModel
 from uuid import UUID
 from typing import Optional
-from app.models.saving_account import SavingAccountStatus, SavingAccountType, Currency
+from app.models.saving_account import SavingAccountStatus, SavingAccountType
 from pydantic import Field
 from typing import Annotated
 
@@ -12,7 +12,7 @@ class SavingAccountCreate(BaseModel):
     name: str
     type: SavingAccountType
     balance: float
-    currency: Optional[Currency] = Currency.COP
+    currency: Optional[str] = Field(default="COP", max_length=3)
 
 class SavingAccountRead(SavingAccountCreate):
     id: int

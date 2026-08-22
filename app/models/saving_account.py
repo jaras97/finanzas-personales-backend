@@ -15,20 +15,15 @@ class SavingAccountType(str, Enum):
     bank = "bank"
     investment = "investment"
 
-class Currency(str, Enum):
-    COP = "COP"
-    USD = "USD"
-    EUR = "EUR"
-
 class SavingAccount(SQLModel, table=True):
     __tablename__ = "saving_account"
-    
+
     id: Optional[int] = Field(default=None, primary_key=True)
     user_id: UUID = Field(foreign_key="user.id")
     name: str
     type: SavingAccountType
     balance: float = 0.0
-    currency: Currency = Field(default=Currency.COP)
+    currency: str = Field(default="COP", foreign_key="currency.code")
 
     status: SavingAccountStatus = Field(default=SavingAccountStatus.active)
     closed_at: Optional[datetime] = None

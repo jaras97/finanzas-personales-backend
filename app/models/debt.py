@@ -6,7 +6,6 @@ from uuid import UUID
 from typing import List, Optional
 from datetime import date
 
-from app.models.saving_account import Currency
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -28,6 +27,6 @@ class Debt(SQLModel, table=True):
     interest_rate: float  # En porcentaje anual
     due_date: Optional[date] = None  # Fecha de vencimiento
     status: DebtStatus = Field(default=DebtStatus.active)  # Estado de la deuda
-    currency: Currency = Field(default=Currency.COP)
+    currency: str = Field(default="COP", foreign_key="currency.code")
     transactions: List["Transaction"] = Relationship(back_populates="debt")
     kind: DebtKind = Field(default=DebtKind.loan)

@@ -4,15 +4,16 @@ from uuid import UUID
 
 from app.database import engine
 from app.models.debt import Debt, DebtStatus
-from app.models.saving_account import Currency, SavingAccount, SavingAccountType, SavingAccountStatus
+from app.models.saving_account import SavingAccount, SavingAccountType, SavingAccountStatus
 from app.core.security import get_current_user_with_subscription_check
+from app.utils.currency_helpers import get_user_currencies
 
 router = APIRouter(prefix="/summary-extra", tags=["summary-extra"])
 
 @router.get("/assets-summary")
 def get_assets_summary(user_id: UUID = Depends(get_current_user_with_subscription_check)):
     with Session(engine) as session:
-        currencies = [Currency.COP, Currency.USD]
+        currencies = get_user_currencies(session, user_id)
         total_savings = {}
         total_investments = {}
         total_assets = {}
@@ -52,7 +53,7 @@ def get_assets_summary(user_id: UUID = Depends(get_current_user_with_subscriptio
 @router.get("/liabilities-summary")
 def get_liabilities_summary(user_id: UUID = Depends(get_current_user_with_subscription_check)):
     with Session(engine) as session:
-        currencies = [Currency.COP, Currency.USD]
+        currencies = get_user_currencies(session, user_id)
         total_liabilities = {}
 
         for currency in currencies:
@@ -79,7 +80,7 @@ def get_liabilities_summary(user_id: UUID = Depends(get_current_user_with_subscr
 @router.get("/net-worth-summary")
 def get_net_worth_summary(user_id: UUID = Depends(get_current_user_with_subscription_check)):
     with Session(engine) as session:
-        currencies = [Currency.COP, Currency.USD, Currency.EUR]
+        currencies = get_user_currencies(session, user_id)
         summary = {}
 
         for currency in currencies:

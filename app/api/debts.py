@@ -17,6 +17,7 @@ from app.core.security import get_current_user, get_current_user_with_subscripti
 from app.schemas.debt_transaction import DebtTransactionRead
 from app.schemas.transaction import TransactionRead
 from app.utils.account_helpers import update_account_balance
+from app.utils.currency_helpers import validate_currency_code
 
 router = APIRouter(prefix="/debts", tags=["debts"])
 
@@ -38,6 +39,7 @@ def create_debt(
     user_id: UUID = Depends(get_current_user_with_subscription_check),
 ):
     with Session(engine) as session:
+        validate_currency_code(session, debt_data.currency)
         new_debt = Debt(**debt_data.dict(), user_id=user_id)
         session.add(new_debt)
         session.commit()
@@ -100,6 +102,8 @@ def update_debt(debt_id: int, debt_data: DebtCreate, user_id: UUID = Depends(get
                 raise HTTPException(400, "No puedes cambiar la moneda: la deuda tiene movimientos.")
             if debt_data.total_amount != debt.total_amount:
                 raise HTTPException(400, "No puedes cambiar el monto total: la deuda tiene movimientos.")
+        elif debt_data.currency != debt.currency:
+            validate_currency_code(session, debt_data.currency)
 
         debt.name = debt_data.name
         debt.interest_rate = debt_data.interest_rate
