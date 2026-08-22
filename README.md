@@ -53,7 +53,9 @@ Ver [`.env.example`](.env.example). Resumen:
 | `DATABASE_URL` | sí | Cadena de conexión Postgres |
 | `SECRET_KEY` | sí | Secreto de firma JWT — debe coincidir con `JWT_SECRET` del frontend |
 | `ALGORITHM` | no (default `HS256`) | Algoritmo de firma JWT |
-| `ACCESS_TOKEN_EXPIRE_MINUTES` | no (default `30`) | Expiración del access token |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | no (default `30`) | Expiración del access token (y de la cookie de sesión) |
+| `ENVIRONMENT` | no (default `development`) | `production` marca la cookie de sesión como `Secure` |
+| `COOKIE_DOMAIN` | no (vacío en local) | Dominio de la cookie de sesión. En producción debe ser el dominio padre compartido con el frontend (`.balancedcent.com`) — si no coincide, el login no funciona entre el frontend y la API |
 
 ## Estructura del proyecto
 
@@ -84,6 +86,6 @@ reset_db.py             # script destructivo de reseteo de esquema (¡solo dev!)
 
 ## Deploy
 
-Push a `main` dispara `.github/workflows/fly-deploy.yml`, que ejecuta `flyctl deploy --remote-only` (sin tests ni lint previos). `fly.toml` define `release_command = "alembic upgrade head"`, así que las migraciones corren automáticamente en cada deploy antes de que la nueva versión reciba tráfico. Más detalle en [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#deploy).
+Push a `main` dispara `.github/workflows/fly-deploy.yml`, que ejecuta `flyctl deploy --remote-only` (sin tests ni lint previos) usando el secret de GitHub `FLY_API_TOKEN`. `fly.toml` define `release_command = "alembic upgrade head"`, así que las migraciones corren automáticamente en cada deploy antes de que la nueva versión reciba tráfico. Servido en `https://api.balancedcent.com` (dominio propio) además de `https://personal-finances-backend.fly.dev`. Más detalle en [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#deploy).
 
-⚠️ Ver [docs/ARCHITECTURE.md — Problemas conocidos](docs/ARCHITECTURE.md#problemas-conocidos--deuda-técnica) para una nota de seguridad importante sobre una credencial de Supabase hardcodeada en `alembic/env.py`.
+⚠️ Pendiente: la contraseña de Supabase que estuvo hardcodeada en `alembic/env.py` (ya corregido en código) sigue siendo válida hasta que se rote manualmente en el dashboard de Supabase — ver [docs/ARCHITECTURE.md — Problemas conocidos](docs/ARCHITECTURE.md#problemas-conocidos--deuda-técnica).

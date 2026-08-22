@@ -4,7 +4,7 @@ Base URL local: `http://localhost:8000`. Docs interactivas auto-generadas: `GET 
 
 Niveles de auth usados en las tablas:
 - **Pública** — sin token.
-- **Auth** — requiere `Authorization: Bearer <token>` válido (`get_current_user`).
+- **Auth** — requiere token válido (`get_current_user`), enviado como `Authorization: Bearer <token>` **o** como cookie httpOnly `access_token` (la que fija `/auth/login`) — lo que llegue primero.
 - **Auth+Sub** — requiere token válido **y** suscripción activa y no vencida (`get_current_user_with_subscription_check`). Es el nivel usado por casi todos los endpoints de negocio.
 - **Admin** — requiere token válido de un usuario con `role="admin"` (`get_current_admin_user`).
 
@@ -15,7 +15,8 @@ Niveles de auth usados en las tablas:
 | Método | Ruta | Auth | Descripción |
 |---|---|---|---|
 | POST | `/auth/register` | Pública | `{email, password}` → crea usuario, hashea password, siembra las 4 categorías del sistema. 400 si el email ya existe. |
-| POST | `/auth/login` | Pública | `OAuth2PasswordRequestForm` (form-urlencoded `username`=email, `password`) → `{access_token, token_type}`. 401 si credenciales inválidas. |
+| POST | `/auth/login` | Pública, con rate limit | `OAuth2PasswordRequestForm` (form-urlencoded `username`=email, `password`) → `{access_token, token_type}` **y** fija la cookie httpOnly `access_token` (`Set-Cookie`, `Secure`+`Domain` según `ENVIRONMENT`/`COOKIE_DOMAIN`). 401 si credenciales inválidas. 429 tras 5 intentos fallidos por correo o 20 por IP en 15 min. |
+| POST | `/auth/logout` | Pública | Limpia la cookie `access_token` (`delete_cookie`). Sin body. |
 | GET | `/auth/me` | Auth | → `{user_id}` |
 | POST | `/auth/forgot-password` | Pública | `{email}` → genera token en memoria (dict `RESET_TOKENS`, **se pierde al reiniciar el proceso, no envía email real** — el `send_email` está comentado). Respuesta genérica para no filtrar existencia del email. |
 | POST | `/auth/reset-password` | Pública | `{token, new_password}` → 400 si el token no existe/ya se usó. |
