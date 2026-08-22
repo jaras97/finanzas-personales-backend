@@ -23,7 +23,7 @@ Niveles de auth usados en las tablas:
 | POST | `/auth/register` | Pública | `{email, password}` → crea usuario, hashea password, siembra las 4 categorías del sistema. 400 si el email ya existe. |
 | POST | `/auth/login` | Pública, con rate limit | `OAuth2PasswordRequestForm` (form-urlencoded `username`=email, `password`) → `{access_token, token_type}` **y** fija la cookie httpOnly `access_token` (`Set-Cookie`, `Secure`+`Domain` según `ENVIRONMENT`/`COOKIE_DOMAIN`). 401 si credenciales inválidas. 429 tras 5 intentos fallidos por correo o 20 por IP en 15 min. |
 | POST | `/auth/logout` | Pública | Limpia la cookie `access_token` (`delete_cookie`). Sin body. |
-| GET | `/auth/me` | Auth | → `{user_id}` |
+| GET | `/auth/me` | Auth | → `{user_id, email, role}`. `role` (`user`\|`admin`) lo usa el frontend para decidir si muestra la sección de administración. |
 | POST | `/auth/forgot-password` | Pública | `{email}` → genera token en memoria (dict `RESET_TOKENS`, **se pierde al reiniciar el proceso, no envía email real** — el `send_email` está comentado). Respuesta genérica para no filtrar existencia del email. |
 | POST | `/auth/reset-password` | Pública | `{token, new_password}` → 400 si el token no existe/ya se usó. |
 | POST | `/auth/change-password` | Auth | `{current_password, new_password}` → verifica password actual antes de cambiar. |
@@ -116,7 +116,14 @@ Niveles de auth usados en las tablas:
 | GET | `/subscriptions/admin/{user_id}` | Admin | 404 si no existe. |
 | DELETE | `/subscriptions/admin/{user_id}` | Admin | Elimina la fila de suscripción. |
 | GET | `/subscriptions/admin` (`/`) | Admin | Lista todas las suscripciones. |
-| GET | `/subscriptions/admin/me` | Auth (no admin) | Duplicado funcional de `/subscriptions/me`, montado bajo `/admin` por el prefijo del router. |
+| ~~GET~~ | ~~`/subscriptions/admin/me`~~ | — | ⚠️ **Código muerto, inalcanzable**: la ruta `/{user_id}` de arriba se declara antes y captura `/me`, que además exige Admin y falla al parsear `"me"` como UUID. Usar `/subscriptions/me`. |
+
+## Administración de usuarios — `app/api/admin_users.py` (prefijo `/admin/users`, todas Admin)
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| GET | `/admin/users` (`/`) | Query `search` (coincidencia parcial de correo, case-insensitive), `page` (≥1), `page_size` (1-100, default 25) → `{items, total, page, page_size, total_pages}`. Cada item trae `id, email, role, created_at` + el estado de suscripción ya resuelto (`subscription_status`: `active`\|`expired`\|`inactive`\|`none`, más `subscription_start`/`subscription_end`), para no obligar al frontend a cruzar dos endpoints por fila. Ordenado por fecha de registro descendente. |
+| PATCH | `/admin/users/{user_id}/role` | Body `{role: "user" \| "admin"}` → `AdminUserRead`. 404 si el usuario no existe; **400 si el cambio dejaría al sistema sin ningún administrador** (protección contra quedarse sin acceso al panel). Cambiar al mismo rol que ya tiene es un no-op idempotente. |
 
 ## Tipo de cambio — `app/routes/fx.py` (prefijo `/fx`)
 

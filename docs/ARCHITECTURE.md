@@ -26,6 +26,8 @@
   | `debts.router` | `/debts` |
   | `subscriptions.router` | `/subscriptions` |
   | `subscriptions_admin.router` | `/subscriptions/admin` |
+  | `admin_users.router` | `/admin/users` |
+  | `currencies.router` | `/currencies` |
   | `summary.router` | `/summary` |
   | `summary_extra.router` | `/summary-extra` |
   | `cash_flow.router` | `/cash-flow` |
