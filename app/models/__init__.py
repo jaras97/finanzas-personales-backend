@@ -5,6 +5,7 @@ from .debt_transaction import *
 from .debt import *
 from .enums import *
 from .investment import *
+from .recurring_transaction import *
 from .saving_account import *
 from .subscription import *
 from .transaction import *
