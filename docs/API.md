@@ -118,6 +118,18 @@ Niveles de auth usados en las tablas:
 | GET | `/subscriptions/admin` (`/`) | Admin | Lista todas las suscripciones. |
 | ~~GET~~ | ~~`/subscriptions/admin/me`~~ | — | ⚠️ **Código muerto, inalcanzable**: la ruta `/{user_id}` de arriba se declara antes y captura `/me`, que además exige Admin y falla al parsear `"me"` como UUID. Usar `/subscriptions/me`. |
 
+## Movimientos recurrentes — `app/api/recurring_transactions.py` (prefijo `/recurring-transactions`, todas Auth+Sub)
+
+Plantillas de movimientos que se repiten (nómina, arriendo, suscripciones). No son movimientos: al vencer generan filas reales en `transaction`.
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| POST | `/recurring-transactions` (`/`) | `{description, amount>0, type (income\|expense), category_id, saving_account_id, frequency (weekly\|biweekly\|monthly\|yearly), next_run (YYYY-MM-DD), end_date?}`. Valida que categoría y cuenta sean del usuario, estén activas y que la categoría corresponda al tipo. `next_run` puede ser pasada: las ocurrencias vencidas se generan en la siguiente corrida. |
+| GET | `/recurring-transactions` (`/`) | Lista las del usuario ordenadas por `next_run`, con `category_name`/`account_name`/`account_currency` resueltos. |
+| PUT | `/recurring-transactions/{id}` | Actualización parcial (incluye `is_active` para pausar/reactivar). |
+| DELETE | `/recurring-transactions/{id}` | Borra solo la plantilla; **los movimientos ya generados se conservan** (son hechos contables). |
+| POST | `/recurring-transactions/run` | Materializa todas las ocurrencias vencidas hasta hoy → `{generated[], skipped[], total_created}`. **Idempotente**: `next_run` solo avanza cuando su movimiento ya se creó, ambos confirmados juntos. Un gasto sin saldo suficiente **no sobregira**: se omite con motivo explícito y su `next_run` queda intacto para reintentar. Tope de 60 ocurrencias por regla por corrida. Los meses se suman recortando al último día válido (una regla del 31 cae en el 28/29 de febrero, no se pasa a marzo). |
+
 ## Administración de usuarios — `app/api/admin_users.py` (prefijo `/admin/users`, todas Admin)
 
 | Método | Ruta | Descripción |

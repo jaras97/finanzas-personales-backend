@@ -27,6 +27,7 @@
   | `subscriptions.router` | `/subscriptions` |
   | `subscriptions_admin.router` | `/subscriptions/admin` |
   | `admin_users.router` | `/admin/users` |
+  | `recurring_transactions.router` | `/recurring-transactions` |
   | `currencies.router` | `/currencies` |
   | `summary.router` | `/summary` |
   | `summary_extra.router` | `/summary-extra` |
@@ -65,6 +66,7 @@ Ver [DATA_MODEL.md](DATA_MODEL.md) para el detalle de tablas. Puntos clave de di
 - **`SavingAccount`** es la cuenta real usada en la app (no `Account`, que es un modelo legacy sin uso).
 - **`Transaction`** es el ledger central; las transferencias se modelan como un par expense+income unidos por `transfer_group_id`, no con `type="transfer"`.
 - **`DebtTransaction`** es un subledger separado, solo para el historial de una deuda puntual (pagos/cargos), distinto de las filas que también se crean en `Transaction` para que esos movimientos aparezcan en los reportes generales.
+- **`RecurringTransaction`** (desde 2026-08-22) son plantillas, no movimientos: `POST /recurring-transactions/run` las materializa en filas reales de `transaction` (con `source_type="recurring"`) aplicando los mismos efectos de saldo que una entrada manual. `frequency` es `varchar`, deliberadamente **no** un enum de Postgres — los enums en este proyecto ya causaron drift entre entornos dos veces; la validación vive en los schemas Pydantic.
 - **Categorías de sistema** (`is_system=True`, `system_key`) se crean automáticamente al registrar un usuario (`create_base_categories`) y no pueden eliminarse ni cambiar de tipo desde la API.
 
 ## Deploy
