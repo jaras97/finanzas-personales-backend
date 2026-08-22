@@ -75,6 +75,16 @@ def upgrade() -> None:
     op.execute("ALTER TABLE debt ALTER COLUMN currency TYPE VARCHAR(3) USING currency::text")
     op.execute("ALTER TABLE debt ALTER COLUMN currency SET DEFAULT 'COP'")
 
+    # 1b) saving_account.currency: in some environments this column was
+    #     already varchar (local dev), in others it's still the same
+    #     Postgres enum as debt.currency was (production). The cast via
+    #     ::text is a safe no-op when it's already varchar, and does the
+    #     real conversion when it's the enum -- covers both without
+    #     needing to know which one we're looking at.
+    op.execute("ALTER TABLE saving_account ALTER COLUMN currency DROP DEFAULT")
+    op.execute("ALTER TABLE saving_account ALTER COLUMN currency TYPE VARCHAR(10) USING currency::text")
+    op.execute("ALTER TABLE saving_account ALTER COLUMN currency SET DEFAULT 'COP'")
+
     # 2) The Postgres enum type is no longer referenced by any column --
     #    drop it now, before creating the "currency" table below (a table
     #    and an enum type of the same name cannot coexist in one schema).
