@@ -4,12 +4,13 @@ import datetime
 from datetime import datetime
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from sqlmodel import Session, select
 from app.database import engine, get_session
 from app.models.subscription import Subscription
 from app.models.user import User
 from app.core.security import get_password_hash, get_current_user
+from app.schemas.user import MIN_PASSWORD_LENGTH
 from uuid import uuid4
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -34,7 +35,7 @@ def forgot_password(payload: ForgotPwdIn):
 
 class ResetPwdIn(BaseModel):
     token: str
-    new_password: str
+    new_password: str = Field(..., min_length=MIN_PASSWORD_LENGTH)
 
 @router.post("/reset-password")
 def reset_password(payload: ResetPwdIn):
@@ -52,7 +53,7 @@ def reset_password(payload: ResetPwdIn):
 
 class ChangePwdIn(BaseModel):
     current_password: str
-    new_password: str
+    new_password: str = Field(..., min_length=MIN_PASSWORD_LENGTH)
 
 @router.post("/change-password")
 def change_password(
