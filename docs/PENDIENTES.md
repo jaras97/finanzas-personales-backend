@@ -12,7 +12,8 @@ Contexto completo en [PLAN_DE_MEJORA.md](PLAN_DE_MEJORA.md) · [roadmap visual](
 
 ## Fase 0 — Seguridad y estabilidad (resto)
 
-- [ ] **Suite mínima de tests + gate en CI.** Hoy `.github/workflows/fly-deploy.yml` despliega en cada push a `main` sin ejecutar nada antes. Prioridad alta: un bug de lógica financiera llega directo a producción. Esfuerzo: L.
+
+- [x] ~~**Suite de tests + gate en CI**~~ ✅ 2026-08-23 — 67 tests contra Postgres real; el job de deploy ahora depende de que pasen. Verificado introduciendo un bug de comisiones a propósito (lo detectó) y confirmando que el deploy queda en `skipped` cuando fallan.
 - [ ] **Refresh token.** El access token expira (8h en prod) sin renovación → el usuario es expulsado a media sesión sin aviso. Esfuerzo: M.
 
 ## Fase 1 — Multi-moneda (resto)
@@ -66,6 +67,17 @@ Esto es lo que hace que "ingresar información sea tedioso", en orden de impacto
 - [ ] Quitar los `console.log` de debug con emojis del middleware de Next.js (están activos en producción). Esfuerzo: XS.
 - [ ] Centralizar el patrón "fecha a mediodía local" — está copiado en al menos 4 archivos. Esfuerzo: S.
 - [ ] Unificar el manejo de errores de API: varios modales reimplementan su propio `extractApiError` en vez de usar `src/lib/extractErrorMessage.ts`. Esfuerzo: S.
+
+## Cobertura de tests (ampliable)
+
+La suite cubre hoy la lógica de plata y control de acceso. Lo que **no** está cubierto y valdría la pena agregar cuando se toque:
+
+- [ ] Endpoints de depósito/retiro de cuentas (`/saving-accounts/{id}/deposit|withdraw`).
+- [ ] Reversión de compras con tarjeta de crédito (el camino que decrementa la deuda).
+- [ ] Reversión de transferencias (revierte ambas patas).
+- [ ] `/cash-flow` y el desglose por categoría de `/summary`.
+- [ ] Reset de contraseña por token (`/auth/reset-password`).
+- [ ] Tests de frontend: hoy no hay ninguno (solo `tsc --noEmit` como red).
 
 ## Bugs conocidos del backend (no urgentes, documentados)
 

@@ -73,8 +73,24 @@ Ver [DATA_MODEL.md](DATA_MODEL.md) para el detalle de tablas. Puntos clave de di
 
 - **Local**: `docker-compose.yml` levanta Postgres 15 en el puerto host `5433` (`finances_db` / `postgres`/`postgres`), solo para desarrollo.
 - **Producción**: Fly.io (`fly.toml`, app `personal-finances-backend`, región `iad`, 1 VM compartida 1GB, auto-stop/auto-start). Servido en `https://api.balancedcent.com` (dominio propio, cert Let's Encrypt vía `flyctl certs create`, DNS: A `66.241.125.141` + AAAA `2a09:8280:1::83:41e:0`) — necesario para que la cookie de sesión sea compartida con el frontend (mismo dominio padre `balancedcent.com`); el host `personal-finances-backend.fly.dev` original sigue funcionando también. `release_command = "alembic upgrade head"` corre las migraciones automáticamente en cada deploy, antes de que la nueva versión reciba tráfico.
-- **CI/CD**: `.github/workflows/fly-deploy.yml` — push a `main` dispara `flyctl deploy --remote-only` usando el secreto `FLY_API_TOKEN`. **No hay paso de tests ni lint** — el deploy es incondicional. Confirmado funcionando de nuevo desde 2026-08-22 (ver "Problemas conocidos" — estuvo roto casi un año).
+- **CI/CD**: `.github/workflows/fly-deploy.yml` — dos jobs. `test` levanta un contenedor Postgres 15 y corre `pytest`; `deploy` depende de él (`needs: test`), así que **un fallo de tests bloquea el deploy**. Los tests también corren en PRs contra `main` (el deploy no). Confirmado funcionando desde 2026-08-22 (ver "Problemas conocidos" — el pipeline estuvo roto casi un año).
 - **Base de datos de producción**: Postgres gestionado por Supabase, accedido vía `DATABASE_URL` normal con `psycopg2` (no se usa el SDK de Supabase, ni su Auth ni su Storage). La carpeta `supabase/` solo contiene metadata cacheada del CLI (`supabase link`/`status`), no hay `config.toml` ni migraciones de Supabase.
+
+## Tests
+
+`pytest` en `tests/`, 67 casos, contra **Postgres real** (no SQLite: el proyecto usa tipos específicos de PG y ya tuvo incidentes por diferencias entre entornos).
+
+```bash
+pip install -r requirements-dev.txt
+docker-compose up -d          # la base de pruebas se crea sola
+pytest
+```
+
+Usa una base separada (`finances_test`, o `TEST_DATABASE_URL`), que `tests/conftest.py` crea si no existe. Dos restricciones de la app condicionan el diseño de `conftest.py`, y conviene tenerlas presentes al agregar tests: el engine se construye **al importar** `app/database.py` (por eso `DATABASE_URL` se fija antes de cualquier import de `app.*`), y la mayoría de rutas abren su propia `Session(engine)` en vez de usar la dependencia `get_session` (por eso no se puede inyectar una sesión de prueba por DI — se aísla apuntando el engine real a otra base). Entre tests se hace `TRUNCATE ... CASCADE` de todo salvo el catálogo de monedas.
+
+`pythonpath = .` en `pytest.ini` es necesario para que `pytest` a secas funcione igual que `python -m pytest`; sin eso el conftest no encuentra el paquete `app` y falla solo en CI.
+
+Lo cubierto y lo pendiente de cubrir está en [PENDIENTES.md](PENDIENTES.md).
 
 ## Problemas conocidos / deuda técnica
 
