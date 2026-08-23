@@ -51,6 +51,12 @@ Esto es lo que hace que "ingresar información sea tedioso", en orden de impacto
 - [ ] Transacciones divididas (un recibo, varias categorías). Esfuerzo: M.
 - [ ] Conciliación bancaria (comparar saldo de la app contra el extracto real). Esfuerzo: M.
 
+## Seguridad de cuentas (agregado 2026-08-22)
+
+- [x] ~~Validación de longitud mínima de contraseña en el backend~~ ✅ — antes la API aceptaba contraseñas de 1 carácter aunque el frontend pidiera 8.
+- [x] ~~Pantalla para cambiar la propia contraseña~~ ✅ — `/account`, el endpoint existía sin UI.
+- [ ] **Rotar la contraseña temporal de `mateojaras97@gmail.com`** — se fijó en una sesión de trabajo y quedó escrita en el historial de esa conversación. Cambiarla desde `/account`.
+
 ## Fase 5 — Pulido técnico y UI/UX
 
 - [ ] Adoptar `react-hook-form` + `zod` en los formularios (ya están instalados y sin usar; hoy todo es `useState` manual por campo). Esfuerzo: L.
