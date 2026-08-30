@@ -54,6 +54,19 @@ Niveles de auth usados en las tablas:
 | GET | `/saving-accounts/{id}/transactions` | Movimientos donde `saving_account_id == id` — para una transferencia, cada cuenta ve únicamente su propia pata (egreso en origen, ingreso en destino), no ambas; `from_account`/`to_account` vienen resueltos en cada fila para mostrar la contraparte. |
 | GET | `/saving-accounts/{id}/has-transactions` | → `{"hasTransactions": bool}` |
 
+## Metas de ahorro — `app/api/saving_goals.py` (prefijo `/saving-goals`, todas Auth+Sub)
+
+Atada 1:1 a una `SavingAccount` completa — "esta cuenta ES mi fondo para el viaje", nada de varias metas compartiendo el saldo de una sola cuenta. El progreso es simplemente `saldo_actual / target_amount` en el momento de consultar, sin trackear aportes/retiros por separado. La moneda de la meta es la de la cuenta, siempre.
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| POST | `/saving-goals` (`/`) | `{saving_account_id, name, target_amount>0, target_date?}` → 400 si la cuenta no es del usuario o no está activa, 400 si **ya existe una meta activa** para esa cuenta (índice único parcial en DB, `WHERE is_active=true`, más el chequeo aplicación). |
+| GET | `/saving-goals` (`/`) | Lista solo las metas **activas** del usuario, cada una con `current_balance`, `progress_percent` y, si tiene `target_date`, `monthly_savings_needed` ya calculados. |
+| PUT | `/saving-goals/{id}` | Actualiza cualquier subconjunto de `{name, target_amount, target_date, is_active}`. Poner `is_active=false` "libera" la cuenta para una meta nueva sin borrar el histórico. |
+| DELETE | `/saving-goals/{id}` | Borrado real (a diferencia de pausar con `is_active=false`). |
+
+**`monthly_savings_needed`**: `(target_amount − saldo_actual) / meses_restantes` hasta `target_date`. Si el saldo ya alcanzó o superó la meta, es `0`. Si `target_date` cae en el mes en curso (o ya pasó), es todo lo que falta de una vez — ya no hay margen para repartirlo entre meses.
+
 ## Transacciones — `app/api/transactions.py` (prefijo `/transactions`, todas Auth+Sub)
 
 | Método | Ruta | Descripción |

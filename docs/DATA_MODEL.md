@@ -174,6 +174,23 @@ Regla de categorización automática. Ver [API.md](API.md) para los endpoints (`
 
 Sin índice único: nada impide dos reglas con el mismo `match_text` (la de menor `priority` simplemente gana siempre).
 
+## `SavingGoal` (`app/models/saving_goal.py`)
+
+Meta de ahorro atada 1:1 a una cuenta. Ver [API.md](API.md) para los endpoints (`app/api/saving_goals.py`).
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| `id` | int (PK) | |
+| `user_id` | UUID (FK) | indexado |
+| `saving_account_id` | int (FK → `saving_account.id`) | indexado |
+| `name` | str | |
+| `target_amount` | float | |
+| `target_date` | date? | opcional — una meta sin fecha ("fondo de emergencia") es igual de válida |
+| `is_active` | bool | default `True` |
+| `created_at` | datetime | default `utcnow` |
+
+Índice único parcial `uq_saving_goal_active_account` en `(saving_account_id) WHERE is_active = true` — a lo sumo una meta activa por cuenta; metas inactivas viejas no cuentan para ese límite.
+
 ## `Subscription` (`app/models/subscription.py`)
 
 | Campo | Tipo | Notas |
