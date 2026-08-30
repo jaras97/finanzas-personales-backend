@@ -34,7 +34,7 @@ Pendiente menor derivado: `/subscriptions/admin/me` es código muerto inalcanzab
 
 Esto es lo que hace que "ingresar información sea tedioso", en orden de impacto real:
 
-- [ ] **Importación de extractos bancarios (CSV).** Hoy cada movimiento se teclea uno por uno. Esfuerzo: L.
+- [ ] **Importación de extractos bancarios (CSV).** Hoy cada movimiento se teclea uno por uno. Esfuerzo: L. Diseño detallado (mapeo de columnas, pantalla de revisión, detección de duplicados, endpoints) en el [artifact de Presupuestos y funcionalidades](https://claude.ai/code/artifact/f7cb77b2-7572-449c-a612-afdb75657d23#csv).
 - [x] ~~**Transacciones recurrentes** (nómina, arriendo, suscripciones)~~ ✅ 2026-08-22 — sección `/recurring`, generación idempotente, sin sobregiro, materialización automática una vez por sesión.
 - [x] ~~Recordar última cuenta/categoría usada~~ ✅ 2026-08-22 — tipo/cuenta/categoría se recuerdan por tipo de movimiento y se precargan.
 - [x] ~~Botón explícito "repetir última transacción" (complemento al anterior)~~ ✅ 2026-08-28 — solo transacciones manuales (sin `source_type`); precarga el formulario con fecha de hoy, el usuario confirma antes de crear.
@@ -42,8 +42,11 @@ Esto es lo que hace que "ingresar información sea tedioso", en orden de impacto
 
 ## Fase 4 — Profundidad financiera
 
-- [ ] Presupuesto por categoría + alerta real de sobregasto (hoy la única alerta es global: "gasté más de lo que ingresó"). Esfuerzo: M.
-- [ ] Ciclo de facturación de tarjeta de crédito (fecha de corte, fecha límite, pago mínimo, cupo/límite). Esfuerzo: M.
+- [ ] Presupuesto por categoría + alerta real de sobregasto (hoy la única alerta es global: "gasté más de lo que ingresó"). Esfuerzo: M. Diseño completo (modelo `Budget` versionado por `effective_from`, multi-moneda por categoría+moneda, cálculo de gasto real, edge cases, endpoints) en el [artifact de Presupuestos y funcionalidades](https://claude.ai/code/artifact/f7cb77b2-7572-449c-a612-afdb75657d23#presupuestos).
+- [ ] Ciclo de facturación de tarjeta de crédito (fecha de corte, fecha límite, pago mínimo, cupo/límite). Esfuerzo: M. Diseño en el [mismo artifact](https://claude.ai/code/artifact/f7cb77b2-7572-449c-a612-afdb75657d23#tarjeta).
+- [ ] Patrimonio neto consolidado en una moneda de referencia (con desglose por moneda y tasa usada). Esfuerzo: M. Diseño en el [mismo artifact](https://claude.ai/code/artifact/f7cb77b2-7572-449c-a612-afdb75657d23#consolidado) — mismo ítem que "moneda de reporte" en Fase 1 de multi-moneda arriba, ahora con el modelo completo.
+- [ ] **Metas de ahorro** (nuevo, no listado antes) — meta atada 1:1 a una cuenta de ahorro, con barra de progreso y ahorro mensual necesario si hay fecha objetivo. Esfuerzo: S — la más simple de todo el backlog nuevo. Diseño en el [mismo artifact](https://claude.ai/code/artifact/f7cb77b2-7572-449c-a612-afdb75657d23#metas).
+- [ ] **Reglas de categorización automática** (nuevo, no listado antes) — "si la descripción contiene X → categoría Y", aplicado al crear transacciones, al importar CSV, y bajo demanda sobre lo ya existente. Esfuerzo: S. Construir justo después de CSV import (arriba), no antes — es donde de verdad rinde. Diseño en el [mismo artifact](https://claude.ai/code/artifact/f7cb77b2-7572-449c-a612-afdb75657d23#reglas).
 - [ ] Tabla de amortización real para préstamos — **o** aclarar en la UI que `interest_rate` es solo informativo (hoy se guarda pero no genera acumulación). Esfuerzo: M.
 - [ ] Subcategorías. Esfuerzo: M.
 - [ ] Exportar reportes a PDF/Excel. Esfuerzo: M.
@@ -51,6 +54,13 @@ Esto es lo que hace que "ingresar información sea tedioso", en orden de impacto
 - [ ] Adjuntar comprobante/foto de recibo a una transacción. Esfuerzo: M.
 - [ ] Transacciones divididas (un recibo, varias categorías). Esfuerzo: M.
 - [ ] Conciliación bancaria (comparar saldo de la app contra el extracto real). Esfuerzo: M.
+
+### Hoja de ruta acordada para lo anterior (2026-08-30)
+
+Orden completo con las 8 fases (transferencias, presupuestos ×2, CSV, reglas, consolidado, tarjeta, metas) en el [artifact de Presupuestos y funcionalidades](https://claude.ai/code/artifact/f7cb77b2-7572-449c-a612-afdb75657d23#roadmap).
+
+- [x] ~~**Fase 1 del roadmap — Transferencias sin duplicar**~~ ✅ 2026-08-30 — una transferencia son 2 filas (`transfer_group_id` compartido) en los datos, pero se leían como dos movimientos independientes en Transacciones ("gasté Y también gané"). Ahora se fusionan client-side (`mergeTransferPairs` en `transactionDisplay.ts`) en una sola fila "Cuenta A → Cuenta B"; si cruza monedas se muestran ambos montos. De paso, se corrigió que `getStatusLabel` nunca devolvía "Transferencia" (el chequeo de `type==='income'/'expense'` iba antes que el de `source_type==='transfer'`, y `type` siempre es income/expense en la práctica) — afectaba también el historial por cuenta.
+- [ ] Fases 2–8 (Presupuestos, CSV, Reglas, Consolidado, Tarjeta, Metas) — pendientes, ver artifact.
 
 ## Seguridad de cuentas (agregado 2026-08-22)
 
@@ -77,6 +87,7 @@ Diagnóstico completo (evidencia visual + hallazgos + hoja de ruta) en el [artif
 - [x] ~~**Fase C — navegación e identidad**~~ ✅ 2026-08-30 — sidebar agrupado (Resumen/Transacciones sueltos arriba, PATRIMONIO: Cuentas+Deudas, AJUSTES: Categorías+Mi cuenta+Usuarios); Recurrentes se movió a pestaña dentro de `/transactions` (`TransactionsTabs.tsx`, misma ruta `/recurring`, ya no tiene ítem propio en el sidebar); rebrand a "Balanced Cent" (logomark "B" en el color de acento en vez de ₿, sidebar/footer/`<title>`/pantalla de suscripción vencida); footer del shell recortado de 3 columnas + CTA "Conectar cuentas" (funcionalidad inexistente, era engañoso) a una sola línea (© + versión + disclaimer); KPI "Total en cuentas"/"Total deudas" del Resumen ahora enlazan a `/saving-accounts`/`/debts`.
   - `NEXT_PUBLIC_APP_NAME` **no está configurado** en Vercel producción (verificado con `vercel env ls production`) — usa el fallback del código, que ya es `Balanced Cent`. Nada que hacer ahí; `.env.local`/`.env.example` también actualizados para desarrollo/referencia.
   - Pendiente menor no crítico: `src/app/favicon.ico` sigue siendo el ícono genérico de Next.js, no una marca propia de Balanced Cent — requiere generar un asset de imagen, fuera del alcance de esta sesión.
+- [x] ~~**Filtros de Transacciones — rediseño de UX**~~ ✅ 2026-08-30 — el bug real: la tabla no tenía ningún límite de fecha por defecto (mostraba todo el historial) mientras las tarjetas KPI de la misma pantalla ya mostraban "mes actual", contradicción visible desde el primer render. `TransactionFilters` ahora es un componente controlado (`value`/`onChange`, sin estado propio "en borrador") con el mismo default que las KPI; los selects de tipo/categoría/origen aplican solos, sin botón; los presets del calendario ("Este mes", "Este año"...) aplican con un clic y cierran el popover, en vez de requerir un "Aplicar" adicional; el popover del calendario tenía además un bug de layout serio -- en laptops de pantalla corta (1366×768 y similares) el botón "Aplicar" o los presets quedaban fuera de la pantalla sin scroll, dependiendo de hacia qué lado volteaba Radix el popover -- corregido con header/footer fijos y solo el calendario con scroll interno (`max-h-[var(--radix-popover-content-available-height)]`). Botón "Filtros" ahora muestra un punto cuando hay filtros activos.
 
 ## Cobertura de tests (ampliable)
 
