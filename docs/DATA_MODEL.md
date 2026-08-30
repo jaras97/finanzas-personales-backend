@@ -206,6 +206,21 @@ Renovación de sesión. Ver `POST /auth/refresh` en [API.md](API.md).
 
 Se hashea con SHA-256 y no con bcrypt a propósito: el token es un valor aleatorio de alta entropía (`secrets.token_urlsafe(48)`), no una contraseña elegida por una persona — bcrypt solo aportaría lentitud. Las filas revocadas se conservan (no se borran) para que un intento de reuso se distinga de un token inexistente.
 
+## `PasswordResetToken` (`app/models/password_reset_token.py`)
+
+Restablecimiento de contraseña. Ver `POST /auth/forgot-password` en [API.md](API.md).
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| `id` | int (PK) | |
+| `user_id` | UUID (FK) | indexado |
+| `token_hash` | str | SHA-256 del token, único e indexado |
+| `expires_at` | datetime | 60 min por defecto (`PASSWORD_RESET_EXPIRE_MINUTES`) |
+| `used_at` | datetime? | se llena al usarlo, o al pedir un enlace nuevo (que invalida los anteriores) |
+| `created_at` | datetime | default `utcnow` |
+
+Reemplazó a `RESET_TOKENS`, un dict en memoria que se perdía en cada deploy y no habría funcionado con más de una instancia — el flujo "olvidé mi contraseña" estaba roto en la práctica.
+
 ## `Subscription` (`app/models/subscription.py`)
 
 | Campo | Tipo | Notas |

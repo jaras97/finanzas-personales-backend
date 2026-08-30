@@ -18,3 +18,13 @@ REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", 30))
 ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
 COOKIE_DOMAIN = os.getenv("COOKIE_DOMAIN") or None
 COOKIE_SECURE = ENVIRONMENT == "production"
+
+# --- Correo transaccional (Resend) ------------------------------------------
+# Sin RESEND_API_KEY el envío queda deshabilitado: los endpoints siguen
+# funcionando y el enlace se registra en el log, para poder desarrollar sin
+# llaves. En producción, si falta, se registra un error visible.
+RESEND_API_KEY = os.getenv("RESEND_API_KEY") or None
+EMAIL_FROM = os.getenv("EMAIL_FROM", "Balanced Cent <no-reply@balancedcent.com>")
+# Base para armar el enlace de restablecimiento que se envía por correo.
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000").rstrip("/")
+PASSWORD_RESET_EXPIRE_MINUTES = int(os.getenv("PASSWORD_RESET_EXPIRE_MINUTES", 60))
