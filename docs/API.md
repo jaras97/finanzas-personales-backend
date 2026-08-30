@@ -23,7 +23,7 @@ Niveles de auth usados en las tablas:
 | POST | `/auth/register` | Pública | `{email, password}` → crea usuario, hashea password, siembra las 4 categorías del sistema. 400 si el email ya existe. |
 | POST | `/auth/login` | Pública, con rate limit | `OAuth2PasswordRequestForm` (form-urlencoded `username`=email, `password`) → `{access_token, token_type}` **y** fija la cookie httpOnly `access_token` (`Set-Cookie`, `Secure`+`Domain` según `ENVIRONMENT`/`COOKIE_DOMAIN`). 401 si credenciales inválidas. 429 tras 5 intentos fallidos por correo o 20 por IP en 15 min. |
 | POST | `/auth/logout` | Pública | Limpia la cookie `access_token` (`delete_cookie`). Sin body. |
-| GET | `/auth/me` | Auth | → `{user_id, email, role}`. `role` (`user`\|`admin`) lo usa el frontend para decidir si muestra la sección de administración. |
+| GET | `/auth/me` | Auth | → `{user_id, email, role, report_currency}`. `role` (`user`\|`admin`) lo usa el frontend para decidir si muestra la sección de administración. `report_currency` (desde 2026-08-30, default `COP`) es la moneda del patrimonio neto consolidado, ver `/summary-extra/net-worth-consolidated`. |
 | POST | `/auth/forgot-password` | Pública | `{email}` → genera token en memoria (dict `RESET_TOKENS`, **se pierde al reiniciar el proceso, no envía email real** — el `send_email` está comentado). Respuesta genérica para no filtrar existencia del email. |
 | POST | `/auth/reset-password` | Pública | `{token, new_password}` → 400 si el token no existe/ya se usó. |
 | POST | `/auth/change-password` | Auth | `{current_password, new_password}` → verifica password actual antes de cambiar. |
@@ -94,6 +94,7 @@ Niveles de auth usados en las tablas:
 | GET | `/summary-extra/assets-summary` | Por cada moneda en uso del usuario (`get_user_currencies`, ya no una lista fija — ver nota de "resuelto" en ARCHITECTURE.md): `total_savings` (cash+bank activas), `total_investments`, `total_assets`. |
 | GET | `/summary-extra/liabilities-summary` | Por cada moneda en uso: `pending = total_amount - pagos`. ⚠️ El filtro de "pagos" busca `Transaction.type == "payment"`, que nunca ocurre (bug enmascarado, ver ARCHITECTURE.md) — el resultado práctico coincide con `total_amount` porque este ya se decrementa en vivo en `/debts/{id}/pay`. |
 | GET | `/summary-extra/net-worth-summary` | Por cada moneda en uso: `total_assets`, `total_liabilities`, `net_worth`, `debt_ratio`. |
+| GET | `/summary-extra/net-worth-consolidated` | Convierte el resultado de `net-worth-summary` a una sola moneda (`User.report_currency`, ver `PATCH /account/preferences` abajo) usando la tasa de **hoy** de `/fx/rate` — no es una reconstrucción histórica. `{report_currency, total_assets, total_liabilities, net_worth, degraded, breakdown: [{currency, original_assets, original_liabilities, converted_assets, converted_liabilities, rate_used}]}`. Si `/fx/rate` falla para alguna moneda (sus dos proveedores externos caídos), esa fila del `breakdown` queda con los `converted_*`/`rate_used` en `null` y **no** entra en la suma — `degraded=true` avisa que el total es parcial, en vez de que todo el endpoint falle con 502. |
 
 ## Flujo de caja — `app/api/cash_flow.py` (prefijo `/cash-flow`, Auth+Sub)
 
@@ -180,4 +181,10 @@ Si la descripción de una transacción **contiene** `match_text` (comparación e
 
 | Método | Ruta | Auth | Descripción |
 |---|---|---|---|
-| GET | `/fx/rate?from=XXX&to=YYY` | **Pública** (sin dependencia de auth) | Async. Misma moneda → `rate=1.0`. Cache en memoria de 12h (se pierde al reiniciar). Intenta `exchangerate.host`, fallback a `open.er-api.com`. 502 si ambos fallan. → `{from, to, rate, source, as_of}`. |
+| GET | `/fx/rate?from=XXX&to=YYY` | **Pública** (sin dependencia de auth) | Async. Misma moneda → `rate=1.0`. Cache en memoria de 12h (se pierde al reiniciar). Intenta `exchangerate.host`, fallback a `open.er-api.com`. 502 si ambos fallan. → `{from, to, rate, source, as_of}`. La lógica vive en `resolve_rate()` (desde 2026-08-30), reutilizada directamente (sin HTTP) por `/summary-extra/net-worth-consolidated`. |
+
+## Cuenta — `app/api/account.py` (prefijo `/account`)
+
+| Método | Ruta | Auth | Descripción |
+|---|---|---|---|
+| PATCH | `/account/preferences` | Auth (sin chequeo de suscripción, igual que cambiar contraseña) | `{report_currency}` → 400 si el código no existe en el catálogo de `currency`. No exige que el usuario tenga cuentas en esa moneda. |

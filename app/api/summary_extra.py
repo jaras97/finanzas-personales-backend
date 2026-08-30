@@ -1,12 +1,14 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select, func
 from uuid import UUID
 
 from app.database import engine
 from app.models.debt import Debt, DebtStatus
 from app.models.saving_account import SavingAccount, SavingAccountType, SavingAccountStatus
+from app.models.user import User
 from app.core.security import get_current_user_with_subscription_check
 from app.utils.currency_helpers import get_user_currencies
+from app.routes.fx import resolve_rate
 
 router = APIRouter(prefix="/summary-extra", tags=["summary-extra"])
 
@@ -132,3 +134,72 @@ def get_net_worth_summary(user_id: UUID = Depends(get_current_user_with_subscrip
             }
 
         return summary
+
+
+@router.get("/net-worth-consolidated")
+async def get_net_worth_consolidated(
+    user_id: UUID = Depends(get_current_user_with_subscription_check),
+):
+    """Patrimonio neto de todas las monedas del usuario, convertido a una
+    sola moneda de referencia (`User.report_currency`) usando la tasa de hoy
+    -- no es una reconstrucción histórica, es "cuánto tengo ahora mismo en
+    total" (ver docs/PENDIENTES.md, Fase 6 del roadmap).
+
+    Si `/fx/rate` falla para alguna moneda (sus dos proveedores externos
+    caídos), esa moneda se muestra sin convertir en el `breakdown` y no
+    entra en la suma -- degrada con gracia en vez de romper todo el
+    endpoint, `degraded=True` avisa al frontend que el total es parcial.
+    """
+    with Session(engine) as session:
+        user = session.get(User, user_id)
+        report_currency = user.report_currency if user else "COP"
+        per_currency = get_net_worth_summary(user_id)
+
+    total_assets = 0.0
+    total_liabilities = 0.0
+    degraded = False
+    breakdown = []
+
+    for currency, data in per_currency.items():
+        if currency == report_currency:
+            rate = 1.0
+        else:
+            try:
+                rate = (await resolve_rate(currency, report_currency))["rate"]
+            except HTTPException:
+                degraded = True
+                breakdown.append(
+                    {
+                        "currency": currency,
+                        "original_assets": data["total_assets"],
+                        "original_liabilities": data["total_liabilities"],
+                        "converted_assets": None,
+                        "converted_liabilities": None,
+                        "rate_used": None,
+                    }
+                )
+                continue
+
+        converted_assets = data["total_assets"] * rate
+        converted_liabilities = data["total_liabilities"] * rate
+        total_assets += converted_assets
+        total_liabilities += converted_liabilities
+        breakdown.append(
+            {
+                "currency": currency,
+                "original_assets": data["total_assets"],
+                "original_liabilities": data["total_liabilities"],
+                "converted_assets": converted_assets,
+                "converted_liabilities": converted_liabilities,
+                "rate_used": rate,
+            }
+        )
+
+    return {
+        "report_currency": report_currency,
+        "total_assets": total_assets,
+        "total_liabilities": total_liabilities,
+        "net_worth": total_assets - total_liabilities,
+        "degraded": degraded,
+        "breakdown": breakdown,
+    }

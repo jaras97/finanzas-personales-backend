@@ -35,11 +35,11 @@ async def fetch_rate_open_er_api(base: str, target: str) -> float:
             return float(rates[target])
         raise ValueError("No rate in response")
 
-@router.get("/rate")
-async def get_rate(
-    from_: str = Query(..., alias="from", min_length=3, max_length=3, pattern="^[A-Za-z]{3}$"),
-    to: str = Query(..., min_length=3, max_length=3, pattern="^[A-Za-z]{3}$"),
-):
+async def resolve_rate(from_: str, to: str) -> dict:
+    """Misma lógica de GET /fx/rate (caché + proveedor primario + fallback),
+    reutilizable desde otros endpoints (ej. patrimonio neto consolidado) sin
+    pasar por HTTP. Lanza HTTPException(502) si ambos proveedores fallan.
+    """
     from_, to = from_.upper(), to.upper()
     if from_ == to:
         return {"from": from_, "to": to, "rate": 1.0, "source": "identity", "as_of": int(time.time())}
@@ -51,7 +51,6 @@ async def get_rate(
         if now - ts < TTL_SECONDS:
             return {"from": from_, "to": to, "rate": rate, "source": "cache", "as_of": int(ts)}
 
-    # Proveedor primario + fallback
     try:
         rate = await fetch_rate_exchangerate_host(from_, to)
         source = "exchangerate.host"
@@ -64,3 +63,11 @@ async def get_rate(
 
     _CACHE[key] = (now, rate)
     return {"from": from_, "to": to, "rate": rate, "source": source, "as_of": int(now)}
+
+
+@router.get("/rate")
+async def get_rate(
+    from_: str = Query(..., alias="from", min_length=3, max_length=3, pattern="^[A-Za-z]{3}$"),
+    to: str = Query(..., min_length=3, max_length=3, pattern="^[A-Za-z]{3}$"),
+):
+    return await resolve_rate(from_, to)

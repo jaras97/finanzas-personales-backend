@@ -100,4 +100,9 @@ def read_users_me(user_id: str = Depends(get_current_user)):
             raise HTTPException(status_code=404, detail="Usuario no encontrado")
         # `role` lo necesita el frontend para decidir si muestra el panel de
         # administración. Se mantiene `user_id` por compatibilidad.
-        return {"user_id": user_id, "email": user.email, "role": user.role}
+        return {
+            "user_id": user_id,
+            "email": user.email,
+            "role": user.role,
+            "report_currency": user.report_currency,
+        }

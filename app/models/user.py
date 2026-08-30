@@ -7,4 +7,7 @@ class User(SQLModel, table=True):
     email: str = Field(index=True, unique=True)
     hashed_password: str
     created_at: datetime = Field(default_factory=datetime.utcnow)
-    role: str = Field(default="user") 
+    role: str = Field(default="user")
+    # Moneda en la que se muestra el patrimonio neto consolidado (Resumen).
+    # No implica que el usuario tenga cuentas en esta moneda.
+    report_currency: str = Field(default="COP", foreign_key="currency.code")

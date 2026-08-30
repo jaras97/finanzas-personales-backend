@@ -11,6 +11,7 @@ Todos los modelos están en `app/models/` (SQLModel). Los PKs de entidades orien
 | `hashed_password` | str | bcrypt |
 | `created_at` | datetime | default `utcnow` |
 | `role` | str | default `"user"`; `"admin"` habilita endpoints de `subscriptions_admin.py` |
+| `report_currency` | str (FK → `currency.code`) | default `"COP"` (desde 2026-08-30); moneda del patrimonio neto consolidado, ver `GET /summary-extra/net-worth-consolidated` en [API.md](API.md) |
 
 ## `Currency` (`app/models/currency.py`, tabla `currency`)
 
