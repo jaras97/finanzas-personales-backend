@@ -142,6 +142,19 @@ Meta de gasto mensual por categoría **y moneda** (una categoría con gastos en 
 
 **Cálculo de `spent`**: mismo criterio de exclusión que `GET /summary` (transferencias, rendimientos de inversión y pagos de deuda no cuentan como gasto real; tampoco transacciones canceladas/reversadas), sumando tanto gastos de cuenta como compras con tarjeta de crédito en esa categoría y moneda, dentro del mes correspondiente.
 
+## Importación de CSV — `app/api/csv_import.py` (prefijos `/transactions/import` y `/import-profiles`, todas Auth+Sub)
+
+Sube un extracto bancario en CSV y crea las transacciones tras revisión manual — nunca crea nada directo del archivo. El mapeo de columnas es por **índice** (0-based), no por nombre de encabezado (el CSV puede no tener encabezado). Categoriza todo como "Sin categorizar" (categoría de sistema, se autocrea la primera vez que se usa) porque las reglas de categorización automática aún no existen — el usuario reasigna categoría por fila en la revisión antes de confirmar.
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| POST | `/transactions/import/preview` | Multipart: `file`, `saving_account_id`, `column_mapping?` (JSON string `{date,description,amount}` con índices de columna), `date_format?` (ej. `%d/%m/%Y`), `has_header` (default `true`). **Sin `column_mapping`**: modo `inspect` — devuelve `sample_rows` (primeras 6 filas crudas) + `column_count` + el `import_profile` guardado para esa cuenta si existe, para que el frontend arme el paso de mapeo. **Con `column_mapping`**: modo `review` — parsea todas las filas (máx. 1.000, 400 si se excede), devuelve cada una con fecha/monto parseados, `type` derivado del signo del monto (no hay columna de tipo separada), `is_duplicate` (mismo monto ±3 días y descripción similar — `difflib.SequenceMatcher` ≥ 0.6 — contra transacciones ya existentes de esa cuenta) y `error` si la fila no pudo parsearse. `include` sugerido es `false` para filas con error o duplicado, `true` en el resto — el usuario ajusta antes de confirmar. |
+| POST | `/transactions/import/confirm` | `{saving_account_id, rows: [{date, description, amount, type, category_id}]}` (ya filtradas/editadas por el usuario) → crea las transacciones reales en lote. Filas con categoría inválida o fecha inválida se cuentan en `skipped`, no abortan el resto. **No bloquea por fondos insuficientes** (a diferencia de `POST /transactions`): son movimientos históricos que ya ocurrieron en el banco, no una decisión de gasto nueva — el saldo de la cuenta se ajusta por el neto sin más. Devuelve `{created, skipped}`. |
+| POST | `/import-profiles` (`/`) | `{saving_account_id, column_mapping, date_format, has_header}` → crea o actualiza (upsert por `user_id`+`saving_account_id`, un perfil por cuenta) el mapeo recordado para no volver a pedirlo en la próxima importación de esa misma cuenta. |
+| GET | `/import-profiles` (`/`) | Lista los perfiles guardados del usuario. |
+
+**Parseo de montos**: soporta formato con miles+decimales en cualquier orden (`1.234,56` o `1,234.56`), signo negativo o entre paréntesis `(150.000)`. El separador que aparece de último en el string se asume decimal.
+
 ## Administración de usuarios — `app/api/admin_users.py` (prefijo `/admin/users`, todas Admin)
 
 | Método | Ruta | Descripción |

@@ -62,6 +62,7 @@ Categorías del sistema (creadas automáticamente al registrar un usuario, ver `
 | `fees` | Comisiones | expense |
 | `transfer` | Transferencia | both |
 | `debt_payment` | Pago de Deuda | expense |
+| `uncategorized` | Sin categorizar | both |
 
 (`opening_balance` y `adjustment` existen como valores del enum `SystemCategoryKey` pero no se usan actualmente.)
 
@@ -136,6 +137,22 @@ Meta de gasto mensual por categoría y moneda. Ver [API.md](API.md) para los end
 `UniqueConstraint(user_id, category_id, currency, effective_from)`.
 
 Diseño: cada fila es una **versión** del presupuesto vigente a partir de `effective_from`, no un valor mutable único — editar el mes en curso actualiza esa misma fila (mismo `effective_from`), pero no se puede reescribir un mes que ya pasó (`POST /budgets` rechaza `effective_from` anterior al mes actual). Pausar inserta/actualiza una fila con `amount=0` en el mes en curso en vez de borrar histórico. La misma categoría se trackea por separado en cada moneda (no se fusionan montos entre monedas). El gasto real (`GET /budgets`) reutiliza el mismo criterio de exclusión que `GET /summary`: no cuentan transferencias, rendimientos de inversión ni pagos de deuda, y se excluyen transacciones canceladas o reversadas.
+
+## `ImportProfile` (`app/models/import_profile.py`)
+
+Mapeo de columnas de CSV recordado por cuenta. Ver [API.md](API.md) para los endpoints (`app/api/csv_import.py`).
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| `id` | int (PK) | |
+| `user_id` | UUID (FK) | indexado |
+| `saving_account_id` | int (FK → `saving_account.id`) | indexado |
+| `column_mapping` | JSON | `{date, description, amount}`, índices de columna 0-based |
+| `date_format` | str | ej. `%d/%m/%Y`, formato `strptime` |
+| `has_header` | bool | default `True` |
+| `created_at` / `updated_at` | datetime | default `utcnow` |
+
+`UniqueConstraint(user_id, saving_account_id)` — un perfil por cuenta; volver a guardar actualiza en vez de duplicar.
 
 ## `Subscription` (`app/models/subscription.py`)
 

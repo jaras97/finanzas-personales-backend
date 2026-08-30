@@ -88,6 +88,19 @@ def get_or_create_transfer_category(session: Session, user_id: UUID) -> Category
     )
 
 
+def get_or_create_uncategorized_category(session: Session, user_id: UUID) -> Category:
+    """Categoría de sistema donde caen las filas de una importación de CSV
+    que ninguna regla de categorización (aún no implementadas) sabe resolver.
+    """
+    return get_or_create_system_category(
+        session=session,
+        user_id=user_id,
+        key=SystemCategoryKey.UNCATEGORIZED,
+        default_name="Sin categorizar",
+        type_=CategoryType.both,
+    )
+
+
 def create_base_categories(user_id: UUID, session: Session) -> None:
     """
     Crea/adopta las categorías base del sistema para un usuario nuevo.
@@ -116,4 +129,10 @@ def create_base_categories(user_id: UUID, session: Session) -> None:
         key=SystemCategoryKey.DEBT_PAYMENT,
         default_name="Pago de Deuda",
         type_=CategoryType.expense,
+    )
+    get_or_create_system_category(
+        session, user_id,
+        key=SystemCategoryKey.UNCATEGORIZED,
+        default_name="Sin categorizar",
+        type_=CategoryType.both,
     )
