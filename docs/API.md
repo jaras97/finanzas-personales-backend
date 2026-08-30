@@ -51,7 +51,7 @@ Niveles de auth usados en las tablas:
 | POST | `/saving-accounts/{id}/deposit` | `{amount>0, description}` → `{"message", "nuevo_balance"}` (forma de respuesta distinta a withdraw). Registra `income` con `source_type="account_deposit"`. |
 | POST | `/saving-accounts/{id}/close` | Requiere `balance == 0` (400 si no). |
 | POST | `/saving-accounts/{id}/reopen` | Requiere estado `closed`. |
-| GET | `/saving-accounts/{id}/transactions` | Movimientos donde la cuenta participa (directo, o como pata origen/destino de transferencia). |
+| GET | `/saving-accounts/{id}/transactions` | Movimientos donde `saving_account_id == id` — para una transferencia, cada cuenta ve únicamente su propia pata (egreso en origen, ingreso en destino), no ambas; `from_account`/`to_account` vienen resueltos en cada fila para mostrar la contraparte. |
 | GET | `/saving-accounts/{id}/has-transactions` | → `{"hasTransactions": bool}` |
 
 ## Transacciones — `app/api/transactions.py` (prefijo `/transactions`, todas Auth+Sub)
@@ -59,7 +59,7 @@ Niveles de auth usados en las tablas:
 | Método | Ruta | Descripción |
 |---|---|---|
 | POST | `/transactions` (`/`) | `{amount, category_id, description, type, saving_account_id, transaction_fee, date}` → valida categoría/cuenta del usuario, cuenta activa. `income`: se acredita `amount - fee` (400 si negativo). `expense`: se debita `amount + fee` (400 si fondos insuficientes). Si `fee > 0`, crea una **segunda** fila de transacción solo para reflejar la comisión en reportes. |
-| POST | `/transactions/transfer` | `{amount, description, from_account_id, to_account_id, transaction_fee, exchange_rate}` → cuentas distintas, ambas activas del usuario. Distinta moneda requiere `exchange_rate>0`; `converted_amount = amount * exchange_rate` (mismo si es misma moneda). Requiere `from.balance >= amount+fee`. Crea pata `expense` (from) + pata `income` (to), ambas con el mismo `transfer_group_id`, categoría de sistema "Transferencia". Si `fee>0`, crea una tercera fila de comisión. Retorna lista de las transacciones creadas. |
+| POST | `/transactions/transfer` | `{amount, description, from_account_id, to_account_id, transaction_fee, exchange_rate, date}` → cuentas distintas, ambas activas del usuario. Distinta moneda requiere `exchange_rate>0`; `converted_amount = amount * exchange_rate` (mismo si es misma moneda). Requiere `from.balance >= amount+fee`. Crea pata `expense` (from) + pata `income` (to), ambas con el mismo `transfer_group_id`, categoría de sistema "Transferencia". `date` es opcional (default `now`), igual que en `POST /transactions`. Si `fee>0`, crea una tercera fila de comisión. Retorna lista de las transacciones creadas. |
 | POST | `/transactions/register-yield/{account_id}` | `{amount>0, description}` → solo cuentas `investment` activas. Acredita balance, `source_type="investment_yield"`, sin categoría. |
 | GET | `/transactions/with-category` | Query `startDate`, `endDate`, `categoryId`, `type`, `source` (`account`→`debt_id IS NULL`, `credit_card`→`debt_id IS NOT NULL`), `page`, `page_size` (máx 100), `include_reversals` (default `False`). → `{items, total, page, page_size, totalPages}`. |
 | PATCH | `/transactions/{id}` | `{description?, category_id?, date?}` (al menos uno). Solo permite editar transacciones manuales `income`/`expense`: bloqueado si está cancelada, si es ella misma una reversión, o si tiene `source_type` (cualquier transacción auto-generada es inmutable). |

@@ -45,6 +45,7 @@ class TransferCreate(BaseModel):
     to_account_id: int
     transaction_fee: float = 0.0
     exchange_rate: Optional[float] = None
+    date: Optional[datetime] = None
 
 class RegisterYieldCreate(BaseModel):
     amount: float

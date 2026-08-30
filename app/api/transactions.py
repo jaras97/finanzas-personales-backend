@@ -140,7 +140,7 @@ def create_transfer(
         if from_account.balance < total_deduction:
             raise HTTPException(status_code=400, detail="Fondos insuficientes en la cuenta de origen para cubrir la transferencia y la comisión.")
 
-        now = dt.datetime.utcnow()
+        now = transfer_data.date or dt.datetime.utcnow()
         transfer_category = get_or_create_transfer_category(session, user_id)
 
         transfer_group_id = uuid4()

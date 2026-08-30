@@ -251,13 +251,7 @@ def get_account_transactions(
 
         transactions = session.exec(
             select(Transaction)
-            .where(
-                or_(
-                    Transaction.saving_account_id == account_id,
-                    Transaction.from_account_id == account_id,
-                    Transaction.to_account_id == account_id,
-                )
-            )
+            .where(Transaction.saving_account_id == account_id)
             .options(
                 joinedload(Transaction.category),
                 joinedload(Transaction.from_account),

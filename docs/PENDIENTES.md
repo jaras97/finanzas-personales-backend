@@ -1,6 +1,6 @@
 # Pendientes — Balanced Cent
 
-Lista viva de lo que queda por hacer, para que nada quede en el olvido. Actualizada 2026-08-22.
+Lista viva de lo que queda por hacer, para que nada quede en el olvido. Actualizada 2026-08-28.
 
 > Cubre **ambos** repos (backend y [frontend](https://github.com/jaras97/finanzas-personal-frontend)); vive aquí porque la carpeta que los agrupa en local no está versionada.
 
@@ -8,7 +8,7 @@ Contexto completo en [PLAN_DE_MEJORA.md](PLAN_DE_MEJORA.md) · [roadmap visual](
 
 ## 🔴 Acción manual del usuario (no resoluble por código)
 
-- [ ] **Rotar la contraseña de Supabase.** El código ya no la hardcodea (corregido en `alembic/env.py`), pero la contraseña filtrada **sigue siendo válida** y está en el historial de git. Pasos: dashboard de Supabase → Project Settings → Database → Reset database password → luego `flyctl secrets set DATABASE_URL='<nueva cadena>' -a personal-finances-backend`.
+- [x] ~~**Rotar la contraseña de Supabase.**~~ ✅ 2026-08-28
 
 ## Fase 0 — Seguridad y estabilidad (resto)
 
@@ -37,8 +37,8 @@ Esto es lo que hace que "ingresar información sea tedioso", en orden de impacto
 - [ ] **Importación de extractos bancarios (CSV).** Hoy cada movimiento se teclea uno por uno. Esfuerzo: L.
 - [x] ~~**Transacciones recurrentes** (nómina, arriendo, suscripciones)~~ ✅ 2026-08-22 — sección `/recurring`, generación idempotente, sin sobregiro, materialización automática una vez por sesión.
 - [x] ~~Recordar última cuenta/categoría usada~~ ✅ 2026-08-22 — tipo/cuenta/categoría se recuerdan por tipo de movimiento y se precargan.
-- [ ] Botón explícito "repetir última transacción" (complemento al anterior). Esfuerzo: XS.
-- [ ] Registro rápido flotante (quick add) accesible desde cualquier pantalla. Esfuerzo: M.
+- [x] ~~Botón explícito "repetir última transacción" (complemento al anterior)~~ ✅ 2026-08-28 — solo transacciones manuales (sin `source_type`); precarga el formulario con fecha de hoy, el usuario confirma antes de crear.
+- [x] ~~Registro rápido flotante (quick add) accesible desde cualquier pantalla~~ ✅ 2026-08-28 — FAB en `(app)/layout.tsx`, reusa `NewTransactionModal`; recarga la página tras crear (no hay caché compartida entre features para invalidar selectivamente).
 
 ## Fase 4 — Profundidad financiera
 
@@ -56,7 +56,7 @@ Esto es lo que hace que "ingresar información sea tedioso", en orden de impacto
 
 - [x] ~~Validación de longitud mínima de contraseña en el backend~~ ✅ — antes la API aceptaba contraseñas de 1 carácter aunque el frontend pidiera 8.
 - [x] ~~Pantalla para cambiar la propia contraseña~~ ✅ — `/account`, el endpoint existía sin UI.
-- [ ] **Rotar la contraseña temporal de `mateojaras97@gmail.com`** — se fijó en una sesión de trabajo y quedó escrita en el historial de esa conversación. Cambiarla desde `/account`.
+- [x] ~~**Rotar la contraseña temporal de `mateojaras97@gmail.com`**~~ ✅ 2026-08-28
 
 ## Fase 5 — Pulido técnico y UI/UX
 
@@ -67,6 +67,16 @@ Esto es lo que hace que "ingresar información sea tedioso", en orden de impacto
 - [ ] Quitar los `console.log` de debug con emojis del middleware de Next.js (están activos en producción). Esfuerzo: XS.
 - [ ] Centralizar el patrón "fecha a mediodía local" — está copiado en al menos 4 archivos. Esfuerzo: S.
 - [ ] Unificar el manejo de errores de API: varios modales reimplementan su propio `extractApiError` en vez de usar `src/lib/extractErrorMessage.ts`. Esfuerzo: S.
+
+## Fase 6 — Diseño: navegación e identidad visual (agregado 2026-08-29)
+
+Diagnóstico completo (evidencia visual + hallazgos + hoja de ruta) en el [artifact publicado](https://claude.ai/code/artifact/498e4c58-3959-48ee-8386-9e942ccd11ad). Resumen: el problema no era falta de sistema de diseño (`globals.css`, `Card`, `Button` ya tenían tokens/variantes) sino que casi nada lo adoptaba — el color comunicaba de qué *tipo* de cuenta/deuda se trataba en vez de si algo era bueno/malo/requería atención.
+
+- [x] ~~**Fase A — fundación**~~ ✅ 2026-08-29 — mapa de color único (`frontend/src/lib/colorRoles.ts`); corregidos los 3 hallazgos de severidad alta ("Total deudas" verde en Resumen vs. rojo en Deudas, patrimonio neto negativo en tarjeta verde, botones "Ver movimientos"/"Pagar" con color por tipo de cuenta/deuda en vez de por acción); primitivos `FormModal`/`PageHeader` (`frontend/src/components/ui/`) con un modal y una página migrados como prueba (`NewTransactionModal`, `/transactions`).
+- [x] ~~**Fase B — migración sistemática**~~ ✅ 2026-08-29 — los 20 modales que aún calculaban su propio `panelTint`/`headerFooterTint` a mano migrados a `FormModal`; `PageHeader` adoptado en las 6 páginas restantes (`summary`, `saving-accounts`, `debts`, `categories`, `recurring`, `admin`, `account`). Jerarquía de KPI en Resumen: 2 tarjetas "hero" grandes (Patrimonio neto, Balance del período) + 8 métricas secundarias en tarjetas pequeñas y silenciosas (color solo en el texto, no en el fondo). Espacio de seguridad (`pb-20`) en el shell móvil para que el FAB de registro rápido no tape el contenido justo antes del footer. `WithdrawFromAccountModal` quedó fuera a propósito (ver Fase 5: no está enlazado a ningún botón).
+- [x] ~~**Fase C — navegación e identidad**~~ ✅ 2026-08-30 — sidebar agrupado (Resumen/Transacciones sueltos arriba, PATRIMONIO: Cuentas+Deudas, AJUSTES: Categorías+Mi cuenta+Usuarios); Recurrentes se movió a pestaña dentro de `/transactions` (`TransactionsTabs.tsx`, misma ruta `/recurring`, ya no tiene ítem propio en el sidebar); rebrand a "Balanced Cent" (logomark "B" en el color de acento en vez de ₿, sidebar/footer/`<title>`/pantalla de suscripción vencida); footer del shell recortado de 3 columnas + CTA "Conectar cuentas" (funcionalidad inexistente, era engañoso) a una sola línea (© + versión + disclaimer); KPI "Total en cuentas"/"Total deudas" del Resumen ahora enlazan a `/saving-accounts`/`/debts`.
+  - ⚠️ **Acción manual pendiente**: `NEXT_PUBLIC_APP_NAME` en Vercel (producción) probablemente sigue en `Finanzas Personales` — actualízalo a `Balanced Cent` en el dashboard de Vercel (Settings → Environment Variables) para que el footer en producción muestre el nombre nuevo. Ya está corregido en `.env.local`/`.env.example`.
+  - Pendiente menor no crítico: `src/app/favicon.ico` sigue siendo el ícono genérico de Next.js, no una marca propia de Balanced Cent — requiere generar un asset de imagen, fuera del alcance de esta sesión.
 
 ## Cobertura de tests (ampliable)
 
