@@ -18,7 +18,7 @@ Contexto completo en [PLAN_DE_MEJORA.md](PLAN_DE_MEJORA.md) · [roadmap visual](
 
 ## Fase 1 — Multi-moneda (resto)
 
-- [ ] **Moneda de reporte + patrimonio neto consolidado.** Hoy todo se reporta en silos por moneda; falta una "moneda de referencia" por usuario y un total consolidado convertido con FX. El endpoint `/fx/rate` ya soporta cualquier par de monedas — falta el endpoint de agregación y la UI. Esfuerzo: M.
+- [x] ~~**Moneda de reporte + patrimonio neto consolidado.**~~ ✅ 2026-08-30 — ver Fase 6 del roadmap abajo.
 
 ## ~~Fase 2 — Panel de usuarios y suscripciones~~ ✅ COMPLETA (2026-08-22)
 
@@ -34,7 +34,7 @@ Pendiente menor derivado: `/subscriptions/admin/me` es código muerto inalcanzab
 
 Esto es lo que hace que "ingresar información sea tedioso", en orden de impacto real:
 
-- [ ] **Importación de extractos bancarios (CSV).** Hoy cada movimiento se teclea uno por uno. Esfuerzo: L. Diseño detallado (mapeo de columnas, pantalla de revisión, detección de duplicados, endpoints) en el [artifact de Presupuestos y funcionalidades](https://claude.ai/code/artifact/f7cb77b2-7572-449c-a612-afdb75657d23#csv).
+- [x] ~~**Importación de extractos bancarios (CSV).**~~ ✅ 2026-08-30 — ver Fase 4 del roadmap abajo.
 - [x] ~~**Transacciones recurrentes** (nómina, arriendo, suscripciones)~~ ✅ 2026-08-22 — sección `/recurring`, generación idempotente, sin sobregiro, materialización automática una vez por sesión.
 - [x] ~~Recordar última cuenta/categoría usada~~ ✅ 2026-08-22 — tipo/cuenta/categoría se recuerdan por tipo de movimiento y se precargan.
 - [x] ~~Botón explícito "repetir última transacción" (complemento al anterior)~~ ✅ 2026-08-28 — solo transacciones manuales (sin `source_type`); precarga el formulario con fecha de hoy, el usuario confirma antes de crear.
@@ -42,11 +42,11 @@ Esto es lo que hace que "ingresar información sea tedioso", en orden de impacto
 
 ## Fase 4 — Profundidad financiera
 
-- [ ] Presupuesto por categoría + alerta real de sobregasto (hoy la única alerta es global: "gasté más de lo que ingresó"). Esfuerzo: M. Diseño completo (modelo `Budget` versionado por `effective_from`, multi-moneda por categoría+moneda, cálculo de gasto real, edge cases, endpoints) en el [artifact de Presupuestos y funcionalidades](https://claude.ai/code/artifact/f7cb77b2-7572-449c-a612-afdb75657d23#presupuestos).
-- [ ] Ciclo de facturación de tarjeta de crédito (fecha de corte, fecha límite, pago mínimo, cupo/límite). Esfuerzo: M. Diseño en el [mismo artifact](https://claude.ai/code/artifact/f7cb77b2-7572-449c-a612-afdb75657d23#tarjeta).
-- [ ] Patrimonio neto consolidado en una moneda de referencia (con desglose por moneda y tasa usada). Esfuerzo: M. Diseño en el [mismo artifact](https://claude.ai/code/artifact/f7cb77b2-7572-449c-a612-afdb75657d23#consolidado) — mismo ítem que "moneda de reporte" en Fase 1 de multi-moneda arriba, ahora con el modelo completo.
-- [ ] **Metas de ahorro** (nuevo, no listado antes) — meta atada 1:1 a una cuenta de ahorro, con barra de progreso y ahorro mensual necesario si hay fecha objetivo. Esfuerzo: S — la más simple de todo el backlog nuevo. Diseño en el [mismo artifact](https://claude.ai/code/artifact/f7cb77b2-7572-449c-a612-afdb75657d23#metas).
-- [ ] **Reglas de categorización automática** (nuevo, no listado antes) — "si la descripción contiene X → categoría Y", aplicado al crear transacciones, al importar CSV, y bajo demanda sobre lo ya existente. Esfuerzo: S. Construir justo después de CSV import (arriba), no antes — es donde de verdad rinde. Diseño en el [mismo artifact](https://claude.ai/code/artifact/f7cb77b2-7572-449c-a612-afdb75657d23#reglas).
+- [x] ~~Presupuesto por categoría + alerta real de sobregasto~~ ✅ 2026-08-30 — ver Fases 2 y 3 del roadmap abajo.
+- [x] ~~Ciclo de facturación de tarjeta de crédito~~ ✅ 2026-08-30 — ver Fase 7 del roadmap abajo.
+- [x] ~~Patrimonio neto consolidado en una moneda de referencia~~ ✅ 2026-08-30 — ver Fase 6 del roadmap abajo.
+- [x] ~~**Metas de ahorro**~~ ✅ 2026-08-30 — ver Fase 8 del roadmap abajo.
+- [x] ~~**Reglas de categorización automática**~~ ✅ 2026-08-30 — ver Fase 5 del roadmap abajo. Nota de alcance: se conectó al import de CSV y a `apply` sobre lo existente, **no** a la autosugerencia mientras se escribe en el formulario manual (queda pendiente si se quiere).
 - [ ] Tabla de amortización real para préstamos — **o** aclarar en la UI que `interest_rate` es solo informativo (hoy se guarda pero no genera acumulación). Esfuerzo: M.
 - [ ] Subcategorías. Esfuerzo: M.
 - [ ] Exportar reportes a PDF/Excel. Esfuerzo: M.
