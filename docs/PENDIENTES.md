@@ -9,12 +9,16 @@ Contexto completo en [PLAN_DE_MEJORA.md](PLAN_DE_MEJORA.md) · [roadmap visual](
 ## 🔴 Acción manual del usuario (no resoluble por código)
 
 - [x] ~~**Rotar la contraseña de Supabase.**~~ ✅ 2026-08-28
+- [ ] **Configurar variables de entorno en Fly.io** para dos funciones ya desplegadas pero inactivas sin llaves:
+  - Reset de contraseña: `RESEND_API_KEY` (crear cuenta en Resend, verificar el dominio `balancedcent.com`), `EMAIL_FROM`, `FRONTEND_URL=https://www.balancedcent.com`. Sin esto el enlace no se envía y el usuario no puede recuperar su cuenta solo.
+  - Comprobantes: `SUPABASE_URL`, `SUPABASE_SERVICE_KEY` y un bucket **privado** llamado `comprobantes` (o el nombre que se ponga en `SUPABASE_STORAGE_BUCKET`). Sin esto, adjuntar devuelve 503 con un mensaje claro.
+  - Comando: `fly secrets set RESEND_API_KEY=... SUPABASE_URL=... SUPABASE_SERVICE_KEY=...`
 
 ## Fase 0 — Seguridad y estabilidad (resto)
 
 
 - [x] ~~**Suite de tests + gate en CI**~~ ✅ 2026-08-23 — 67 tests contra Postgres real; el job de deploy ahora depende de que pasen. Verificado introduciendo un bug de comisiones a propósito (lo detectó) y confirmando que el deploy queda en `skipped` cuando fallan.
-- [ ] **Refresh token.** El access token expira (8h en prod) sin renovación → el usuario es expulsado a media sesión sin aviso. Esfuerzo: M.
+- [x] ~~**Refresh token.**~~ ✅ 2026-08-30 — tabla `refresh_token` (SHA-256 del token, nunca el crudo), rotación en cada uso, revocación en logout / cambio de contraseña / reset. Interceptor de axios renueva en el primer 401 y deduplica los concurrentes; el middleware deja pasar si el access venció pero hay refresh.
 
 ## Fase 1 — Multi-moneda (resto)
 
@@ -51,7 +55,7 @@ Esto es lo que hace que "ingresar información sea tedioso", en orden de impacto
 - [ ] Subcategorías. Esfuerzo: M.
 - [ ] Exportar reportes a PDF/Excel. Esfuerzo: M.
 - [ ] Tendencia histórica multi-mes / interanual en el dashboard. Esfuerzo: M.
-- [ ] Adjuntar comprobante/foto de recibo a una transacción. Esfuerzo: M.
+- [x] ~~Adjuntar comprobante/foto de recibo a una transacción~~ ✅ 2026-08-30 — Supabase Storage en bucket privado, URLs firmadas de 1h, ruta construida en el servidor (no con el `filename` del cliente). Ícono de clip con contador en Transacciones. **Requiere `SUPABASE_URL` y `SUPABASE_SERVICE_KEY` en producción.**
 - [ ] Transacciones divididas (un recibo, varias categorías). Esfuerzo: M.
 - [ ] Conciliación bancaria (comparar saldo de la app contra el extracto real). Esfuerzo: M.
 
@@ -82,7 +86,7 @@ Orden completo con las 8 fases (transferencias, presupuestos ×2, CSV, reglas, c
 - [ ] Separar visualmente "compra con tarjeta" de "gasto desde cuenta" en el flujo de nueva transacción (hoy la tarjeta aparece como si fuera una cuenta más, con prefijo `debt-` interno). Esfuerzo: S.
 - [ ] Enlazar o eliminar `WithdrawFromAccountModal` — existe en el código pero ningún botón lo abre (el botón "Depositar" también está comentado en `AccountsSection.tsx`). Esfuerzo: S.
 - [ ] Eliminar componentes huérfanos (`Header.tsx`, `MobileSidebarTrigger.tsx`, `SummaryLineChart.tsx`, `SummaryPieChart.tsx`). Esfuerzo: XS.
-- [ ] Quitar los `console.log` de debug con emojis del middleware de Next.js (están activos en producción). Esfuerzo: XS.
+- [x] ~~Quitar los `console.log` de debug con emojis del middleware de Next.js~~ ✅ 2026-08-30
 - [ ] Centralizar el patrón "fecha a mediodía local" — está copiado en al menos 4 archivos. Esfuerzo: S.
 - [ ] Unificar el manejo de errores de API: varios modales reimplementan su propio `extractApiError` en vez de usar `src/lib/extractErrorMessage.ts`. Esfuerzo: S.
 
@@ -105,7 +109,7 @@ La suite cubre hoy la lógica de plata y control de acceso. Lo que **no** está 
 - [ ] Reversión de compras con tarjeta de crédito (el camino que decrementa la deuda).
 - [ ] Reversión de transferencias (revierte ambas patas).
 - [ ] `/cash-flow` y el desglose por categoría de `/summary`.
-- [ ] Reset de contraseña por token (`/auth/reset-password`).
+- [x] ~~Reset de contraseña por token (`/auth/reset-password`)~~ ✅ 2026-08-30 — 9 tests.
 - [ ] Tests de frontend: hoy no hay ninguno (solo `tsc --noEmit` como red).
 
 ## Bugs conocidos del backend (no urgentes, documentados)
@@ -114,8 +118,8 @@ La suite cubre hoy la lógica de plata y control de acceso. Lo que **no** está 
 - [ ] `DebtTransactionType.charge_reversal` no existe en el enum; las reversiones de compras con tarjeta se registran como `extra_charge`.
 - [ ] `POST /saving-accounts/{id}/withdraw` etiqueta la transacción como `source_type="account_deposit"` (debería ser `account_withdraw`).
 - [ ] Inconsistencia de respuesta: `deposit` devuelve `{message, nuevo_balance}` y `withdraw` devuelve el objeto completo.
-- [ ] `DELETE /transactions/{id}` en una transferencia revierte solo la pata borrada — la otra queda huérfana con su efecto de balance sin revertir.
-- [ ] Reset de contraseña: `RESET_TOKENS` es un dict en memoria (se pierde en cada deploy, no escala a 2 instancias) y el envío de correo está comentado → el flujo "olvidé mi contraseña" no envía correos reales hoy.
+- [x] ~~`DELETE /transactions/{id}` en una transferencia~~ ✅ 2026-08-30 — era peor de lo documentado: revertía **dos veces** la cuenta de la pata borrada (ambos bloques del endpoint se disparaban) y dejaba la otra pata viva. Ahora borra el grupo completo revirtiendo cada cuenta una sola vez. La comisión se deja intacta a propósito (el banco sí la cobró).
+- [x] ~~Reset de contraseña~~ ✅ 2026-08-30 — tokens en tabla `password_reset_token` (hasheados, un solo uso, 60 min, pedir uno nuevo invalida el anterior), envío por Resend, pantalla `/auth/reset-password` y pestaña de recuperación habilitada en el login. **Requiere `RESEND_API_KEY` en producción.**
 - [ ] `/fx/rate` no tiene auth (endpoint público) y su cache de 12h es en memoria de proceso.
 - [ ] Crear una cuenta con saldo inicial ≠ 0 no genera transacción de apertura → el saldo inicial no queda trazado como movimiento.
 - [ ] Modelos `Account` e `Investment` sin uso por ningún endpoint — candidatos a eliminar.
