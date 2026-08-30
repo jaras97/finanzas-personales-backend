@@ -70,9 +70,9 @@ Niveles de auth usados en las tablas:
 
 | Método | Ruta | Descripción |
 |---|---|---|
-| POST | `/debts` (`/`) | `{name, total_amount, interest_rate, due_date, currency, kind}` → 400 si `currency` no está en el catálogo. |
+| POST | `/debts` (`/`) | `{name, total_amount, interest_rate, due_date, currency, kind, credit_limit?, statement_day?, payment_due_days?, minimum_payment_percent?}` → 400 si `currency` no está en el catálogo. Los 4 campos de ciclo (desde 2026-08-30) solo tienen efecto real si `kind=credit_card`; `statement_day` 1-28 (422 fuera de rango — se evita 29-31 a propósito, meses cortos). |
 | GET | `/debts` (`/`) | Lista deudas del usuario, cada una con `transactions_count`. |
-| PUT | `/debts/{id}` | Actualiza `name`/`interest_rate`/`due_date`/`currency`/`total_amount`. Cambiar `currency` o `total_amount` bloqueado (400) si ya tiene transacciones. |
+| PUT | `/debts/{id}` | Actualiza `name`/`interest_rate`/`due_date`/`currency`/`total_amount`, y los 4 campos de ciclo **solo si `debt.kind == credit_card`** (se ignoran en préstamos, incluso si vienen en el body). Cambiar `currency` o `total_amount` bloqueado (400) si ya tiene transacciones. |
 | DELETE | `/debts/{id}` | Bloqueado (400) si tiene transacciones. |
 | POST | `/debts/{id}/pay` | `{amount, saving_account_id, description, date}` → `TransactionRead`. Valida `amount>0`, no excede `total_amount` (tolerancia 0.01), cuenta del usuario, activa, **misma moneda que la deuda**, fondos suficientes. Crea `expense` (`source_type="debt_payment"`) + `DebtTransaction(type=payment)`, debita cuenta, decrementa `debt.total_amount`. Si el saldo resultante es ≤0.01: se pone en 0 y, **solo si `kind=loan`**, se autocierra la deuda (las tarjetas de crédito quedan activas en $0). |
 | POST | `/debts/{id}/add-charge` | `{amount, description, date}` → `DebtRead`. Requiere deuda activa, `amount>0`. Incrementa `total_amount`, registra `DebtTransaction(type=interest_charge)`. |
@@ -80,6 +80,7 @@ Niveles de auth usados en las tablas:
 | POST | `/debts/{id}/purchase` | `{amount, category_id, description, date, merchant, installments}` → `TransactionRead`. Requiere deuda activa y `kind=credit_card`. Categoría válida del usuario, activa, tipo `expense`/`both`. Incrementa `total_amount`, crea `expense` con `saving_account_id=None` (**no toca ninguna cuenta bancaria**), `source_type="credit_card_purchase"`, + `DebtTransaction(type=extra_charge)`. |
 | POST | `/debts/{id}/close` | Requiere `total_amount == 0` y no cerrada. |
 | POST | `/debts/{id}/reopen` | Requiere estado `closed`. |
+| GET | `/debts/{id}/statement` | Ciclo de facturación (desde 2026-08-30), calculado **en vivo** a partir de `DebtTransaction` — no hay tabla de estados de cuenta históricos. 400 si `kind != credit_card` o si `statement_day`/`payment_due_days` no están configurados. → `{next_statement_date, payment_due_date, current_period_charges, minimum_payment_estimate, available_credit}`. `current_period_charges` suma `extra_charge`+`interest_charge` (no `payment`) entre el corte anterior y el próximo. `minimum_payment_estimate` y `available_credit` vienen `null` si esos campos no están configurados en la deuda. **El pago mínimo es siempre una estimación** (`total_amount × minimum_payment_percent`) — no hay fórmula universal de bancos, se muestra tal cual, nunca como el valor exacto que cobrará el banco. |
 
 ## Resúmenes — `app/api/summary.py` (prefijo `/summary`, Auth+Sub)
 

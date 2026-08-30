@@ -1,3 +1,4 @@
+import calendar
 import datetime as dt
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func
@@ -12,7 +13,7 @@ from app.models.debt_transaction import DebtTransaction, DebtTransactionType
 from app.models.enums import TransactionType
 from app.models.saving_account import SavingAccount
 from app.models.transaction import Transaction
-from app.schemas.debt import AddChargeRequest, CreditCardPurchaseCreate, DebtCreate, DebtPayment, DebtRead
+from app.schemas.debt import AddChargeRequest, CreditCardPurchaseCreate, DebtCreate, DebtPayment, DebtRead, DebtStatementRead
 from app.core.security import get_current_user, get_current_user_with_subscription_check
 from app.schemas.debt_transaction import DebtTransactionRead
 from app.schemas.transaction import TransactionRead
@@ -110,6 +111,12 @@ def update_debt(debt_id: int, debt_data: DebtCreate, user_id: UUID = Depends(get
         debt.due_date = debt_data.due_date
         debt.currency = debt_data.currency
         debt.total_amount = debt_data.total_amount
+
+        if debt.kind == DebtKind.credit_card:
+            debt.credit_limit = debt_data.credit_limit
+            debt.statement_day = debt_data.statement_day
+            debt.payment_due_days = debt_data.payment_due_days
+            debt.minimum_payment_percent = debt_data.minimum_payment_percent
 
         session.add(debt); session.commit(); session.refresh(debt)
 
@@ -341,3 +348,74 @@ def reopen_debt(debt_id: int, user_id: UUID = Depends(get_current_user_with_subs
 
         debt.status = "active"; session.add(debt); session.commit()
         return {"message": "Deuda reabierta correctamente."}
+
+
+def _clamp_day(year: int, month: int, day: int) -> int:
+    """Evita días 29-31 en meses cortos (statement_day va de 1 a 28 a propósito)."""
+    return min(day, calendar.monthrange(year, month)[1])
+
+
+def _compute_cycle_dates(today: dt.date, statement_day: int) -> tuple[dt.date, dt.date]:
+    """(inicio_del_ciclo_actual, próximo_corte) a partir de hoy. El próximo
+    corte es hoy mismo si hoy cae justo en `statement_day`, si no el próximo
+    `statement_day` hacia adelante; el inicio del ciclo es el corte anterior
+    a ese (un mes antes)."""
+    if today.day <= statement_day:
+        next_statement = today.replace(day=_clamp_day(today.year, today.month, statement_day))
+    else:
+        month, year = today.month + 1, today.year
+        if month > 12:
+            month, year = 1, year + 1
+        next_statement = dt.date(year, month, _clamp_day(year, month, statement_day))
+
+    prev_month, prev_year = next_statement.month - 1, next_statement.year
+    if prev_month < 1:
+        prev_month, prev_year = 12, prev_year - 1
+    cycle_start = dt.date(prev_year, prev_month, _clamp_day(prev_year, prev_month, statement_day))
+
+    return cycle_start, next_statement
+
+
+@router.get("/{debt_id}/statement", response_model=DebtStatementRead)
+def get_debt_statement(debt_id: int, user_id: UUID = Depends(get_current_user_with_subscription_check)):
+    """Ciclo de facturación calculado en vivo a partir de `DebtTransaction` --
+    no hay una tabla de estados de cuenta históricos (ver docs/PENDIENTES.md,
+    Fase 7 del roadmap): nada se snapshotea, igual que el resto de la app."""
+    with Session(engine) as session:
+        debt = session.exec(select(Debt).where(Debt.id == debt_id, Debt.user_id == user_id)).first()
+        if not debt:
+            raise HTTPException(404, "Deuda no encontrada")
+        if debt.kind != DebtKind.credit_card:
+            raise HTTPException(400, "Solo las tarjetas de crédito tienen ciclo de facturación.")
+        if not debt.statement_day or not debt.payment_due_days:
+            raise HTTPException(
+                400, "Configura el día de corte y los días para pagar de esta tarjeta primero."
+            )
+
+        cycle_start, next_statement = _compute_cycle_dates(dt.date.today(), debt.statement_day)
+        payment_due_date = next_statement + dt.timedelta(days=debt.payment_due_days)
+
+        charges = session.exec(
+            select(func.coalesce(func.sum(DebtTransaction.amount), 0)).where(
+                DebtTransaction.debt_id == debt_id,
+                DebtTransaction.type.in_(
+                    [DebtTransactionType.extra_charge, DebtTransactionType.interest_charge]
+                ),
+                DebtTransaction.date >= dt.datetime.combine(cycle_start, dt.time.min),
+                DebtTransaction.date < dt.datetime.combine(next_statement, dt.time.min),
+            )
+        ).one()
+
+        return DebtStatementRead(
+            next_statement_date=next_statement,
+            payment_due_date=payment_due_date,
+            current_period_charges=charges or 0.0,
+            minimum_payment_estimate=(
+                debt.total_amount * (debt.minimum_payment_percent / 100)
+                if debt.minimum_payment_percent is not None
+                else None
+            ),
+            available_credit=(
+                debt.credit_limit - debt.total_amount if debt.credit_limit is not None else None
+            ),
+        )

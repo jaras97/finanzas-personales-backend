@@ -15,6 +15,11 @@ class DebtCreate(BaseModel):
     due_date: Optional[date] = None
     currency: str = Field(default="COP", max_length=3)
     kind: DebtKind = DebtKind.loan
+    # Solo aplican cuando kind=credit_card -- se ignoran en préstamos.
+    credit_limit: Optional[float] = None
+    statement_day: Optional[int] = Field(default=None, ge=1, le=28)
+    payment_due_days: Optional[int] = Field(default=None, ge=1)
+    minimum_payment_percent: Optional[float] = Field(default=None, ge=0, le=100)
 
 class DebtRead(DebtCreate):
     id: int
@@ -23,7 +28,15 @@ class DebtRead(DebtCreate):
     transactions_count: Optional[int] = 0
 
     class Config:
-        orm_mode = True 
+        orm_mode = True
+
+
+class DebtStatementRead(BaseModel):
+    next_statement_date: date
+    payment_due_date: date
+    current_period_charges: float
+    minimum_payment_estimate: Optional[float] = None
+    available_credit: Optional[float] = None
 
 class DebtPayment(BaseModel):
     amount: float

@@ -30,3 +30,9 @@ class Debt(SQLModel, table=True):
     currency: str = Field(default="COP", foreign_key="currency.code")
     transactions: List["Transaction"] = Relationship(back_populates="debt")
     kind: DebtKind = Field(default=DebtKind.loan)
+
+    # Solo tienen sentido para kind=credit_card -- ver GET /debts/{id}/statement
+    credit_limit: Optional[float] = None
+    statement_day: Optional[int] = None  # día del mes de corte, 1-28
+    payment_due_days: Optional[int] = None  # días desde el corte hasta la fecha límite de pago
+    minimum_payment_percent: Optional[float] = None  # % del saldo, informado por el usuario

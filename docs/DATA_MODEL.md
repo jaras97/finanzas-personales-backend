@@ -80,8 +80,12 @@ Categorías del sistema (creadas automáticamente al registrar un usuario, ver `
 | `status` | `DebtStatus` enum | `active` \| `closed` |
 | `currency` | str (FK → `currency.code`) | default `"COP"` |
 | `kind` | `DebtKind` enum | `loan` \| `credit_card`, default `loan` |
+| `credit_limit` | float? | desde 2026-08-30; solo con sentido en `kind=credit_card` |
+| `statement_day` | int? | día del mes de corte, 1-28 (se evitan 29-31 por meses cortos) |
+| `payment_due_days` | int? | días desde el corte hasta la fecha límite de pago |
+| `minimum_payment_percent` | float? | % del saldo que el usuario indica que exige su banco; el cálculo resultante siempre se muestra como estimado, no hay fórmula universal por banco |
 
-Relación `transactions: List[Transaction]` (vía `Transaction.debt_id`).
+Relación `transactions: List[Transaction]` (vía `Transaction.debt_id`). El ciclo de facturación (`GET /debts/{id}/statement`, ver [API.md](API.md)) se calcula en vivo a partir de `DebtTransaction`, no hay tabla de estados de cuenta históricos.
 
 ## `DebtTransaction` (`app/models/debt_transaction.py`, tabla `debt_transaction`)
 
