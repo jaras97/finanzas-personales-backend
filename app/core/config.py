@@ -6,6 +6,9 @@ load_dotenv()  # Carga automáticamente desde .env
 SECRET_KEY = os.getenv("SECRET_KEY")
 ALGORITHM = os.getenv("ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 30))
+# Ventana de renovación: mientras el usuario vuelva dentro de este plazo, su
+# sesión se renueva sola y no lo expulsa a media tarea.
+REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", 30))
 
 # Cookie de sesión (auth httpOnly). En producción, COOKIE_DOMAIN debe ser el
 # dominio raíz compartido entre frontend y backend (p. ej. ".balancedcent.com")

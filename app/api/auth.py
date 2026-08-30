@@ -5,11 +5,20 @@ from fastapi.security import OAuth2PasswordRequestForm
 from sqlmodel import Session, select
 from app.models.user import User
 from app.schemas.user import UserCreate, UserRead
-from app.core.config import ACCESS_TOKEN_EXPIRE_MINUTES, COOKIE_DOMAIN, COOKIE_SECURE
+from app.core.config import (
+    ACCESS_TOKEN_EXPIRE_MINUTES,
+    COOKIE_DOMAIN,
+    COOKIE_SECURE,
+    REFRESH_TOKEN_EXPIRE_DAYS,
+)
 from app.core.rate_limit import get_client_ip, login_limiter_by_email, login_limiter_by_ip
 from app.core.security import (
     ACCESS_TOKEN_COOKIE_NAME,
+    REFRESH_TOKEN_COOKIE_NAME,
+    consume_refresh_token,
     get_password_hash,
+    issue_refresh_token,
+    revoke_all_refresh_tokens,
     verify_password,
     create_access_token,
     get_current_user,
@@ -31,6 +40,24 @@ def _set_access_token_cookie(response: Response, token: str) -> None:
         domain=COOKIE_DOMAIN,
         path="/",
     )
+
+
+def _set_refresh_token_cookie(response: Response, token: str) -> None:
+    response.set_cookie(
+        key=REFRESH_TOKEN_COOKIE_NAME,
+        value=token,
+        max_age=REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
+        httponly=True,
+        secure=COOKIE_SECURE,
+        samesite="lax",
+        domain=COOKIE_DOMAIN,
+        path="/",
+    )
+
+
+def _clear_auth_cookies(response: Response) -> None:
+    for name in (ACCESS_TOKEN_COOKIE_NAME, REFRESH_TOKEN_COOKIE_NAME):
+        response.delete_cookie(key=name, domain=COOKIE_DOMAIN, path="/")
 
 # Registro
 @router.post("/register", response_model=UserRead)
@@ -73,22 +100,69 @@ def login(request: Request, response: Response, form_data: OAuth2PasswordRequest
 
         access_token = create_access_token(data={"sub": str(user.id)})
         _set_access_token_cookie(response, access_token)
+
+        refresh_token = issue_refresh_token(session, user.id)
+        session.commit()
+        _set_refresh_token_cookie(response, refresh_token)
+
         # El body sigue trayendo el token para clientes API (Postman, Swagger,
         # scripts de administración) que no pueden depender de la cookie.
         # El frontend web ya no lo persiste: se autentica solo con la cookie.
+        # El refresh token NO se expone en el body: solo vive en su cookie
+        # httpOnly, para que ningún script pueda leerlo ni guardarlo.
         return {"access_token": access_token, "token_type": "bearer"}
 
 
-# Logout: limpia la cookie httpOnly. El navegador no puede borrarla por sí
+@router.post("/refresh")
+def refresh(request: Request, response: Response):
+    """Renueva el access token a partir del refresh token (cookie httpOnly).
+
+    Rota el refresh token en cada uso: el anterior queda revocado. Si el
+    token no sirve, limpia ambas cookies -- dejar una cookie muerta en el
+    navegador solo produce reintentos que vuelven a fallar.
+    """
+    raw_token = request.cookies.get(REFRESH_TOKEN_COOKIE_NAME)
+    if not raw_token:
+        raise HTTPException(status_code=401, detail="No hay sesión que renovar")
+
+    with Session(engine) as session:
+        user_id = consume_refresh_token(session, raw_token)
+        if user_id is None:
+            session.rollback()
+            _clear_auth_cookies(response)
+            raise HTTPException(status_code=401, detail="Sesión expirada, inicia sesión de nuevo")
+
+        user = session.get(User, user_id)
+        if not user:
+            session.rollback()
+            _clear_auth_cookies(response)
+            raise HTTPException(status_code=401, detail="Usuario no encontrado")
+
+        new_refresh = issue_refresh_token(session, user_id)
+        session.commit()
+
+        access_token = create_access_token(data={"sub": str(user_id)})
+        _set_access_token_cookie(response, access_token)
+        _set_refresh_token_cookie(response, new_refresh)
+        return {"access_token": access_token, "token_type": "bearer"}
+
+
+# Logout: limpia las cookies httpOnly. El navegador no puede borrarlas por sí
 # solo (es justamente el punto de httpOnly), así que el logout ahora pasa
 # por el backend en vez de manipular document.cookie/localStorage.
+# Además REVOCA el refresh token: sin eso, cerrar sesión dejaría la sesión
+# aún renovable con la cookie que quedó en el navegador.
 @router.post("/logout")
-def logout(response: Response):
-    response.delete_cookie(
-        key=ACCESS_TOKEN_COOKIE_NAME,
-        domain=COOKIE_DOMAIN,
-        path="/",
-    )
+def logout(request: Request, response: Response):
+    raw_token = request.cookies.get(REFRESH_TOKEN_COOKIE_NAME)
+    if raw_token:
+        with Session(engine) as session:
+            user_id = consume_refresh_token(session, raw_token)
+            if user_id is not None:
+                revoke_all_refresh_tokens(session, user_id)
+            session.commit()
+
+    _clear_auth_cookies(response)
     return {"message": "Sesión cerrada"}
 
 # Ruta protegida

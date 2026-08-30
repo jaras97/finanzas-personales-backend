@@ -62,11 +62,14 @@ def change_password(
     session: Session = Depends(get_session)
 ):
     user = session.get(User, user_id)
-    from app.core.security import verify_password
+    from app.core.security import revoke_all_refresh_tokens, verify_password
     if not user or not verify_password(payload.current_password, user.hashed_password):
         raise HTTPException(status_code=400, detail="Contraseña actual incorrecta")
     user.hashed_password = get_password_hash(payload.new_password)
     session.add(user)
+    # Cambiar la contraseña cierra las sesiones renovables: si alguien más
+    # tenía acceso, este es el momento en que lo pierde.
+    revoke_all_refresh_tokens(session, user.id)
     session.commit()
     return {"detail": "Contraseña actualizada"}
 

@@ -394,7 +394,47 @@ def delete_transaction(
         if not transaction:
             raise HTTPException(status_code=404, detail="Transacción no encontrada")
 
-        # Ajuste de balances antes de eliminar
+        # --- Transferencias: se borra el GRUPO completo -------------------
+        # Las 2 patas llevan `saving_account_id` (su propia cuenta) Y
+        # `from_account_id`/`to_account_id`. Tratarlas como movimiento simple
+        # revertía la cuenta de esa pata dos veces y dejaba la otra pata viva
+        # con su efecto de saldo aplicado -- el patrimonio del usuario crecía
+        # de la nada. Se revierte cada cuenta exactamente una vez y se borran
+        # ambas filas.
+        #
+        # La comisión de la transferencia NO se toca: es una fila aparte, sin
+        # `transfer_group_id` (dárselo rompería `mergeTransferPairs` en el
+        # frontend, que solo fusiona cuando el grupo tiene exactamente 2
+        # filas). Además es correcto: la plata se reubicó y eso se revierte,
+        # pero el banco sí cobró la comisión y ese gasto ocurrió de verdad.
+        if transaction.source_type == "transfer" and transaction.transfer_group_id:
+            legs = session.exec(
+                select(Transaction).where(
+                    Transaction.user_id == user_id,
+                    Transaction.transfer_group_id == transaction.transfer_group_id,
+                    Transaction.source_type == "transfer",
+                )
+            ).all()
+
+            for leg in legs:
+                if leg.saving_account_id is None:
+                    continue
+                account = session.get(SavingAccount, leg.saving_account_id)
+                if not account:
+                    continue
+                if leg.type == TransactionType.income:
+                    account.balance -= leg.amount
+                else:
+                    account.balance += leg.amount
+                session.add(account)
+
+            for leg in legs:
+                session.delete(leg)
+
+            session.commit()
+            return {"message": "Transferencia eliminada correctamente"}
+
+        # --- Movimiento simple (ingreso/egreso de una sola cuenta) --------
         if transaction.type in [TransactionType.income, TransactionType.expense]:
             if transaction.saving_account_id is not None:
                 account = session.get(SavingAccount, transaction.saving_account_id)
@@ -405,21 +445,6 @@ def delete_transaction(
                         account.balance += transaction.amount
                     session.add(account)
 
-        # Si es transferencia, ajustar ambas cuentas
-        if transaction.from_account_id and transaction.to_account_id:
-            from_account = session.get(SavingAccount, transaction.from_account_id)
-            to_account = session.get(SavingAccount, transaction.to_account_id)
-            if from_account and to_account:
-                # Se asume que las transferencias se crean como:
-                # - salida: expense en cuenta origen
-                # - entrada: income en cuenta destino
-                if transaction.type == TransactionType.expense:
-                    from_account.balance += transaction.amount  # Revertir egreso
-                elif transaction.type == TransactionType.income:
-                    to_account.balance -= transaction.amount   # Revertir ingreso
-                session.add_all([from_account, to_account])
-
-        # Eliminar transacción
         session.delete(transaction)
         session.commit()
 

@@ -191,6 +191,21 @@ Meta de ahorro atada 1:1 a una cuenta. Ver [API.md](API.md) para los endpoints (
 
 Índice único parcial `uq_saving_goal_active_account` en `(saving_account_id) WHERE is_active = true` — a lo sumo una meta activa por cuenta; metas inactivas viejas no cuentan para ese límite.
 
+## `RefreshToken` (`app/models/refresh_token.py`)
+
+Renovación de sesión. Ver `POST /auth/refresh` en [API.md](API.md).
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| `id` | int (PK) | |
+| `user_id` | UUID (FK) | indexado |
+| `token_hash` | str | **SHA-256 del token**, único e indexado; el valor crudo nunca se guarda |
+| `expires_at` | datetime | 30 días por defecto (`REFRESH_TOKEN_EXPIRE_DAYS`) |
+| `revoked_at` | datetime? | se llena al rotar, al cerrar sesión o al cambiar contraseña |
+| `created_at` | datetime | default `utcnow` |
+
+Se hashea con SHA-256 y no con bcrypt a propósito: el token es un valor aleatorio de alta entropía (`secrets.token_urlsafe(48)`), no una contraseña elegida por una persona — bcrypt solo aportaría lentitud. Las filas revocadas se conservan (no se borran) para que un intento de reuso se distinga de un token inexistente.
+
 ## `Subscription` (`app/models/subscription.py`)
 
 | Campo | Tipo | Notas |
