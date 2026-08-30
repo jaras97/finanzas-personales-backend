@@ -221,6 +221,23 @@ Restablecimiento de contraseña. Ver `POST /auth/forgot-password` en [API.md](AP
 
 Reemplazó a `RESET_TOKENS`, un dict en memoria que se perdía en cada deploy y no habría funcionado con más de una instancia — el flujo "olvidé mi contraseña" estaba roto en la práctica.
 
+## `Attachment` (`app/models/attachment.py`)
+
+Comprobante adjunto a una transacción. Ver [API.md](API.md) (`app/api/attachments.py`).
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| `id` | int (PK) | |
+| `user_id` | UUID (FK) | indexado |
+| `transaction_id` | int (FK → `transaction.id`) | indexado |
+| `storage_path` | str | ruta completa en el bucket, `{user_id}/{transaction_id}/{uuid}.{ext}` |
+| `filename` | str | nombre original, solo para mostrar — **nunca** se usa para construir la ruta |
+| `content_type` | str | JPG/PNG/WEBP/HEIC/PDF |
+| `size_bytes` | int | máx. 5 MB |
+| `created_at` | datetime | default `utcnow` |
+
+El binario vive en Supabase Storage, en un bucket **privado**: los archivos se sirven con URL firmada de 1 hora, nunca por URL pública, porque un comprobante lleva montos y datos bancarios. Se adjunta a una `Transaction` y no a un grupo de transferencia: en una transferencia cuelga de la pata de salida, que es la fila que el usuario ve tras `mergeTransferPairs`.
+
 ## `Subscription` (`app/models/subscription.py`)
 
 | Campo | Tipo | Notas |

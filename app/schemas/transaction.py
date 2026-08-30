@@ -34,7 +34,11 @@ class TransactionWithCategoryRead(TransactionRead):
     saving_account: Optional[SavingAccountRead] = None
     from_account: Optional[SavingAccountRead] = None
     to_account: Optional[SavingAccountRead] = None
-    debt: Optional[DebtRead] = None  
+    debt: Optional[DebtRead] = None
+    # Cuántos comprobantes tiene. Va en el listado para que la UI marque las
+    # filas con adjunto sin pedir uno por uno: sin esta señal el usuario
+    # tendría que abrir cada movimiento para saber si guardó el recibo.
+    attachments_count: int = 0
 
     model_config = ConfigDict(from_attributes=True)
 

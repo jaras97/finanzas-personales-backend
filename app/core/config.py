@@ -28,3 +28,11 @@ EMAIL_FROM = os.getenv("EMAIL_FROM", "Balanced Cent <no-reply@balancedcent.com>"
 # Base para armar el enlace de restablecimiento que se envía por correo.
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000").rstrip("/")
 PASSWORD_RESET_EXPIRE_MINUTES = int(os.getenv("PASSWORD_RESET_EXPIRE_MINUTES", 60))
+
+# --- Almacenamiento de comprobantes (Supabase Storage) ----------------------
+# El bucket debe ser PRIVADO: los archivos se sirven con URL firmada de 1h,
+# nunca por URL pública (un comprobante lleva montos y datos bancarios).
+SUPABASE_URL = (os.getenv("SUPABASE_URL") or "").rstrip("/") or None
+SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY") or None
+SUPABASE_STORAGE_BUCKET = os.getenv("SUPABASE_STORAGE_BUCKET", "comprobantes")
+MAX_ATTACHMENT_BYTES = int(os.getenv("MAX_ATTACHMENT_BYTES", 5 * 1024 * 1024))

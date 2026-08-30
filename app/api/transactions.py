@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 from sqlmodel import Session, select
 from app.database import engine
+from app.models.attachment import Attachment
 from app.models.category import Category, CategoryType
 from app.models.debt import Debt
 from app.models.debt_transaction import DebtTransaction, DebtTransactionType
@@ -294,11 +295,26 @@ def list_transactions_with_category(
 
         total_pages = max(1, (total + page_size - 1) // page_size)
 
+        # Conteo de comprobantes en UNA sola consulta agrupada para toda la
+        # página, en vez de una por fila (N+1).
+        page_ids = [t.id for t in transactions]
+        counts: dict[int, int] = {}
+        if page_ids:
+            rows = session.exec(
+                select(Attachment.transaction_id, func.count())
+                .where(Attachment.transaction_id.in_(page_ids))
+                .group_by(Attachment.transaction_id)
+            ).all()
+            counts = {tx_id: count for tx_id, count in rows}
+
+        items = []
+        for t in transactions:
+            item = TransactionWithCategoryRead.model_validate(t, from_attributes=True).model_dump()
+            item["attachments_count"] = counts.get(t.id, 0)
+            items.append(item)
+
         return {
-            "items": [
-                TransactionWithCategoryRead.model_validate(t, from_attributes=True).model_dump()
-                for t in transactions
-            ],
+            "items": items,
             "total": total,
             "page": page,
             "page_size": page_size,

@@ -22,14 +22,12 @@ Niveles de auth usados en las tablas:
 |---|---|---|---|
 | POST | `/auth/register` | Pública | `{email, password}` → crea usuario, hashea password, siembra las 4 categorías del sistema. 400 si el email ya existe. |
 | POST | `/auth/login` | Pública, con rate limit | `OAuth2PasswordRequestForm` (form-urlencoded `username`=email, `password`) → `{access_token, token_type}` **y** fija la cookie httpOnly `access_token` (`Set-Cookie`, `Secure`+`Domain` según `ENVIRONMENT`/`COOKIE_DOMAIN`). 401 si credenciales inválidas. 429 tras 5 intentos fallidos por correo o 20 por IP en 15 min. |
-| POST | `/auth/logout` | Pública | Limpia la cookie `access_token` (`delete_cookie`). Sin body. |
+| POST | `/auth/logout` | Pública | Limpia ambas cookies (`access_token` y `refresh_token`) y **revoca** los refresh tokens del usuario — sin eso, cerrar sesión dejaría la sesión aún renovable con la cookie que quedó en el navegador. Sin body. |
 | POST | `/auth/forgot-password` | Pública | `{email}` → envía por correo (Resend) un enlace a `FRONTEND_URL/auth/reset-password?token=...`, válido 60 min (`PASSWORD_RESET_EXPIRE_MINUTES`) y de un solo uso. Pedir uno nuevo **invalida el anterior**. La respuesta es idéntica exista o no la cuenta, y un fallo de envío tampoco la cambia — si variara, el endpoint sería un detector de correos registrados. |
 | POST | `/auth/reset-password` | Pública (token) | `{token, new_password}` → 400 si el token no existe, ya se usó o venció. Revoca todas las sesiones renovables del usuario: quien recupera su contraseña suele hacerlo porque perdió el control de la cuenta. |
 | POST | `/auth/refresh` | Cookie `refresh_token` | Renueva el access token sin pedir credenciales. **Rota** el refresh token en cada uso (el anterior queda revocado, así un token robado y usado delata el robo al expulsar al legítimo). 401 si falta, no existe, ya se usó o expiró — y en ese caso limpia ambas cookies. El refresh token **nunca** viaja en el body, solo como cookie httpOnly. |
 | GET | `/auth/me` | Auth | → `{user_id, email, role, report_currency}`. `role` (`user`\|`admin`) lo usa el frontend para decidir si muestra la sección de administración. `report_currency` (desde 2026-08-30, default `COP`) es la moneda del patrimonio neto consolidado, ver `/summary-extra/net-worth-consolidated`. |
-| POST | `/auth/forgot-password` | Pública | `{email}` → genera token en memoria (dict `RESET_TOKENS`, **se pierde al reiniciar el proceso, no envía email real** — el `send_email` está comentado). Respuesta genérica para no filtrar existencia del email. |
-| POST | `/auth/reset-password` | Pública | `{token, new_password}` → 400 si el token no existe/ya se usó. |
-| POST | `/auth/change-password` | Auth | `{current_password, new_password}` → verifica password actual antes de cambiar. |
+| POST | `/auth/change-password` | Auth | `{current_password, new_password}` → verifica password actual antes de cambiar. Revoca las sesiones renovables: si alguien más tenía acceso, este es el momento en que lo pierde. |
 | GET | `/auth/subscription-status` | Auth | → `{state: "none"|"active"|"inactive"|"expired", end_date}` |
 
 ## Categorías — `app/api/categories.py` (prefijo `/categories`, todas Auth+Sub)
@@ -56,6 +54,18 @@ Niveles de auth usados en las tablas:
 | POST | `/saving-accounts/{id}/reopen` | Requiere estado `closed`. |
 | GET | `/saving-accounts/{id}/transactions` | Movimientos donde `saving_account_id == id` — para una transferencia, cada cuenta ve únicamente su propia pata (egreso en origen, ingreso en destino), no ambas; `from_account`/`to_account` vienen resueltos en cada fila para mostrar la contraparte. |
 | GET | `/saving-accounts/{id}/has-transactions` | → `{"hasTransactions": bool}` |
+
+## Comprobantes — `app/api/attachments.py` (Auth+Sub)
+
+Adjuntos de una transacción (foto de recibo, PDF del banco). El binario vive en **Supabase Storage** (bucket privado); en Postgres solo queda la ruta y los metadatos. En una transferencia se adjunta a la **pata de salida**, que es la fila que el usuario ve tras la fusión de pares.
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| POST | `/transactions/{id}/attachments` | Multipart `file`. Solo JPG/PNG/WEBP/HEIC/PDF (400 en otro caso), máx. 5 MB (`MAX_ATTACHMENT_BYTES`) y 5 comprobantes por movimiento. 404 si la transacción no es del usuario. La ruta en el bucket se construye **en el servidor** (`{user_id}/{transaction_id}/{uuid}.{ext}`), nunca con el `filename` del cliente — un nombre como `../../otro-usuario/x.jpg` no puede escapar de su carpeta; el nombre original solo se guarda para mostrarlo. |
+| GET | `/transactions/{id}/attachments` | Lista los comprobantes con una **URL firmada de 1 hora** cada uno. Si el almacenamiento no responde, `url` viene en `null` y el resto del listado igual se devuelve. |
+| DELETE | `/attachments/{id}` | Borra el binario del bucket y la fila. Si el archivo ya no estaba en el bucket, igual borra la fila — si no, una inconsistencia dejaría adjuntos imposibles de quitar. |
+
+`GET /transactions/with-category` incluye `attachments_count` por fila (una sola consulta agrupada por página, no N+1) para que la lista marque qué movimientos tienen comprobante sin pedirlos uno por uno.
 
 ## Metas de ahorro — `app/api/saving_goals.py` (prefijo `/saving-goals`, todas Auth+Sub)
 
