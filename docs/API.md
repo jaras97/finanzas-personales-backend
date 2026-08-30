@@ -130,6 +130,18 @@ Plantillas de movimientos que se repiten (nómina, arriendo, suscripciones). No 
 | DELETE | `/recurring-transactions/{id}` | Borra solo la plantilla; **los movimientos ya generados se conservan** (son hechos contables). |
 | POST | `/recurring-transactions/run` | Materializa todas las ocurrencias vencidas hasta hoy → `{generated[], skipped[], total_created}`. **Idempotente**: `next_run` solo avanza cuando su movimiento ya se creó, ambos confirmados juntos. Un gasto sin saldo suficiente **no sobregira**: se omite con motivo explícito y su `next_run` queda intacto para reintentar. Tope de 60 ocurrencias por regla por corrida. Los meses se suman recortando al último día válido (una regla del 31 cae en el 28/29 de febrero, no se pasa a marzo). |
 
+## Presupuestos — `app/api/budgets.py` (prefijo `/budgets`, todas Auth+Sub)
+
+Meta de gasto mensual por categoría **y moneda** (una categoría con gastos en COP y USD tiene dos presupuestos independientes, nunca uno fusionado). El monto está versionado por `effective_from`: editar el presupuesto hoy no reescribe cómo le fue al usuario en un mes ya pasado — cada fila es la meta vigente desde ese mes en adelante, hasta que otra fila más reciente la reemplace. `amount=0` significa "pausado desde este mes", no una meta de cero.
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| POST | `/budgets` (`/`) | `{category_id, currency, amount>=0, effective_from?}` → crea o **actualiza** (si ya existe una fila para esa categoría+moneda+mes, la sobreescribe en vez de duplicar). 400 si la categoría no es del usuario/está inactiva, es de sistema, o es de tipo `income`. `effective_from` por defecto es el mes en curso; 400 si se intenta fijar en un mes que ya pasó. Devuelve el progreso ya calculado (ver GET). |
+| GET | `/budgets` (`/`) | Query `month` (`YYYY-MM`, default mes en curso) → lista de presupuestos vigentes ese mes, cada uno con `spent` (gasto real acumulado) y `percentage` ya calculados. Resuelve "vigente" como la fila con `effective_from` más reciente que sea `<= month` por cada par (categoría, moneda); las pausadas (`amount=0`) no aparecen. |
+| POST | `/budgets/{id}/pause` | Inserta (o actualiza) una fila con `amount=0` para el mes en curso, usando la categoría/moneda del presupuesto `{id}` como referencia — no borra el histórico. |
+
+**Cálculo de `spent`**: mismo criterio de exclusión que `GET /summary` (transferencias, rendimientos de inversión y pagos de deuda no cuentan como gasto real; tampoco transacciones canceladas/reversadas), sumando tanto gastos de cuenta como compras con tarjeta de crédito en esa categoría y moneda, dentro del mes correspondiente.
+
 ## Administración de usuarios — `app/api/admin_users.py` (prefijo `/admin/users`, todas Admin)
 
 | Método | Ruta | Descripción |

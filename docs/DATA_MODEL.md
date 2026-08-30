@@ -119,6 +119,24 @@ Ledger central de todos los movimientos.
 
 Relaciones: `category`, `saving_account` (pata única de income/expense), `from_account`/`to_account` (patas de transferencia, cada una con `foreign_keys` explícito), `debt`.
 
+## `Budget` (`app/models/budget.py`)
+
+Meta de gasto mensual por categoría y moneda. Ver [API.md](API.md) para los endpoints (`app/api/budgets.py`).
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| `id` | int (PK) | |
+| `user_id` | UUID (FK) | indexado |
+| `category_id` | int (FK → `category.id`) | indexado |
+| `currency` | str (FK → `currency.code`) | máx. 3 caracteres |
+| `amount` | float | `0` significa "pausado desde este mes" |
+| `effective_from` | date | indexado; siempre el día 1 de un mes |
+| `created_at` | datetime | default `utcnow` |
+
+`UniqueConstraint(user_id, category_id, currency, effective_from)`.
+
+Diseño: cada fila es una **versión** del presupuesto vigente a partir de `effective_from`, no un valor mutable único — editar el mes en curso actualiza esa misma fila (mismo `effective_from`), pero no se puede reescribir un mes que ya pasó (`POST /budgets` rechaza `effective_from` anterior al mes actual). Pausar inserta/actualiza una fila con `amount=0` en el mes en curso en vez de borrar histórico. La misma categoría se trackea por separado en cada moneda (no se fusionan montos entre monedas). El gasto real (`GET /budgets`) reutiliza el mismo criterio de exclusión que `GET /summary`: no cuentan transferencias, rendimientos de inversión ni pagos de deuda, y se excluyen transacciones canceladas o reversadas.
+
 ## `Subscription` (`app/models/subscription.py`)
 
 | Campo | Tipo | Notas |
