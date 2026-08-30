@@ -2,9 +2,10 @@
 
 Flujo en dos pasos: sin `column_mapping` el preview solo devuelve una
 muestra cruda para que el usuario indique qué columna es cuál; con mapeo,
-parsea todas las filas, sugiere "Sin categorizar" (todavía no hay reglas de
-categorización) y marca posibles duplicados contra lo que ya existe en esa
-cuenta. `confirm` crea de verdad solo las filas que el usuario aprueba.
+parsea todas las filas, sugiere categoría (por regla si alguna matchea la
+descripción, si no "Sin categorizar") y marca posibles duplicados contra lo
+que ya existe en esa cuenta. `confirm` crea de verdad solo las filas que el
+usuario aprueba.
 """
 import io
 import json
@@ -56,6 +57,24 @@ def test_preview_parses_and_suggests_uncategorized(client, auth, make_account):
 
     assert income_row["type"] == "income"
     assert income_row["amount"] == 2000000.0
+
+
+def test_preview_uses_matching_rule_instead_of_uncategorized(client, auth, make_account, make_category):
+    acc = make_account()
+    streaming = make_category(name="Streaming", type_="expense")
+    client.post(
+        "/category-rules", json={"category_id": streaming["id"], "match_text": "nomina"}, headers=auth
+    )
+
+    mapping = {"date": 0, "description": 1, "amount": 2}
+    res = _upload(client, auth, acc["id"], CSV_BODY, mapping=mapping, date_format="%d/%m/%Y")
+    body = res.json()
+    income_row = body["rows"][1]
+    assert income_row["description"] == "Pago nomina"
+    assert income_row["category_name"] == "Streaming"
+
+    # La fila que no matchea ninguna regla sigue cayendo en "Sin categorizar"
+    assert body["rows"][0]["category_name"] == "Sin categorizar"
 
 
 def test_preview_flags_invalid_rows(client, auth, make_account):

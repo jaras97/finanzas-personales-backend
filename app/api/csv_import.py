@@ -13,6 +13,7 @@ from sqlmodel import Session, select
 from app.core.security import get_current_user_with_subscription_check
 from app.database import engine
 from app.models.category import Category
+from app.models.category_rule import CategoryRule
 from app.models.enums import TransactionType
 from app.models.import_profile import ImportProfile
 from app.models.saving_account import SavingAccount, SavingAccountStatus
@@ -28,6 +29,7 @@ from app.schemas.csv_import import (
     ImportRowPreview,
 )
 from app.utils.category_helpers import get_or_create_uncategorized_category
+from app.utils.category_rule_helpers import suggest_category
 
 transactions_import_router = APIRouter(prefix="/transactions/import", tags=["csv-import"])
 import_profiles_router = APIRouter(prefix="/import-profiles", tags=["csv-import"])
@@ -180,6 +182,15 @@ async def preview_import(
                 Transaction.is_cancelled == False,  # noqa: E712
             )
         ).all()
+        active_rules = session.exec(
+            select(CategoryRule).where(
+                CategoryRule.user_id == user_id, CategoryRule.is_active == True  # noqa: E712
+            )
+        ).all()
+        categories_by_id = {
+            c.id: c
+            for c in session.exec(select(Category).where(Category.user_id == user_id)).all()
+        }
 
         max_idx = max(mapping.date, mapping.description, mapping.amount)
         rows: List[ImportRowPreview] = []
@@ -233,6 +244,13 @@ async def preview_import(
             if errors:
                 error_count += 1
 
+            suggested_id = suggest_category(raw_desc, active_rules)
+            suggested_category = categories_by_id.get(suggested_id) if suggested_id else None
+            if suggested_category:
+                category_id, category_name = suggested_category.id, suggested_category.name
+            else:
+                category_id, category_name = uncategorized.id, uncategorized.name
+
             rows.append(
                 ImportRowPreview(
                     row_index=idx,
@@ -240,8 +258,8 @@ async def preview_import(
                     description=raw_desc,
                     amount=amount_val,
                     type=tx_type,
-                    category_id=uncategorized.id,
-                    category_name=uncategorized.name,
+                    category_id=category_id,
+                    category_name=category_name,
                     is_duplicate=is_dup,
                     include=not errors and not is_dup,
                     error="; ".join(errors) if errors else None,

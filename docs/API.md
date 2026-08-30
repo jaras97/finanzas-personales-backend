@@ -144,7 +144,7 @@ Meta de gasto mensual por categoría **y moneda** (una categoría con gastos en 
 
 ## Importación de CSV — `app/api/csv_import.py` (prefijos `/transactions/import` y `/import-profiles`, todas Auth+Sub)
 
-Sube un extracto bancario en CSV y crea las transacciones tras revisión manual — nunca crea nada directo del archivo. El mapeo de columnas es por **índice** (0-based), no por nombre de encabezado (el CSV puede no tener encabezado). Categoriza todo como "Sin categorizar" (categoría de sistema, se autocrea la primera vez que se usa) porque las reglas de categorización automática aún no existen — el usuario reasigna categoría por fila en la revisión antes de confirmar.
+Sube un extracto bancario en CSV y crea las transacciones tras revisión manual — nunca crea nada directo del archivo. El mapeo de columnas es por **índice** (0-based), no por nombre de encabezado (el CSV puede no tener encabezado). Cada fila se categoriza con la primera regla activa de `/category-rules` que matchee la descripción; si ninguna matchea, cae en "Sin categorizar" (categoría de sistema, se autocrea la primera vez que se usa) — el usuario reasigna categoría por fila en la revisión antes de confirmar.
 
 | Método | Ruta | Descripción |
 |---|---|---|
@@ -154,6 +154,20 @@ Sube un extracto bancario en CSV y crea las transacciones tras revisión manual 
 | GET | `/import-profiles` (`/`) | Lista los perfiles guardados del usuario. |
 
 **Parseo de montos**: soporta formato con miles+decimales en cualquier orden (`1.234,56` o `1,234.56`), signo negativo o entre paréntesis `(150.000)`. El separador que aparece de último en el string se asume decimal.
+
+## Reglas de categorización — `app/api/category_rules.py` (prefijo `/category-rules`, todas Auth+Sub)
+
+Si la descripción de una transacción **contiene** `match_text` (comparación en minúsculas, sin regex — v1 deliberadamente simple), se sugiere `category_id`. Se evalúan en orden de `priority` ascendente y gana la **primera** que matchea (orden manual explícito, no "la más específica gana"). `suggest_category()` (`app/utils/category_rule_helpers.py`) es la función pura reutilizada tanto acá como en el preview de `/transactions/import/preview`.
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| POST | `/category-rules` (`/`) | `{category_id, match_text}` → crea con `priority` = la más alta existente del usuario + 1 (queda al final de la cola de evaluación). 400 si `match_text` está vacío o la categoría no es del usuario/está inactiva. |
+| GET | `/category-rules` (`/`) | Lista ordenada por `priority` ascendente. |
+| PUT | `/category-rules/{id}` | Actualiza cualquier subconjunto de `{category_id, match_text, priority, is_active}` — reordenar es simplemente mandar un `priority` nuevo. |
+| DELETE | `/category-rules/{id}` | Elimina la regla. |
+| POST | `/category-rules/apply` | Aplica las reglas activas del usuario contra sus transacciones que **todavía** están en "Sin categorizar" (no toca las que ya tienen otra categoría). Devuelve `{updated}`. Pensado para correr después de crear una regla nueva, o después de una importación que dejó filas sin categorizar. |
+
+**Alcance de v1** (ver artifact de diseño): sin autosugerencia mientras se escribe la descripción en el formulario manual de transacción — eso quedó fuera de esta fase, solo se conectó a CSV y a `apply`.
 
 ## Administración de usuarios — `app/api/admin_users.py` (prefijo `/admin/users`, todas Admin)
 

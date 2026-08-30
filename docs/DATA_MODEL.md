@@ -154,6 +154,21 @@ Mapeo de columnas de CSV recordado por cuenta. Ver [API.md](API.md) para los end
 
 `UniqueConstraint(user_id, saving_account_id)` — un perfil por cuenta; volver a guardar actualiza en vez de duplicar.
 
+## `CategoryRule` (`app/models/category_rule.py`)
+
+Regla de categorización automática. Ver [API.md](API.md) para los endpoints (`app/api/category_rules.py`).
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| `id` | int (PK) | |
+| `user_id` | UUID (FK) | indexado |
+| `category_id` | int (FK → `category.id`) | |
+| `match_text` | str | se compara en minúsculas, "contiene", sin regex |
+| `priority` | int | indexado; menor va primero, gana la primera que matchea |
+| `is_active` | bool | default `True` |
+
+Sin índice único: nada impide dos reglas con el mismo `match_text` (la de menor `priority` simplemente gana siempre).
+
 ## `Subscription` (`app/models/subscription.py`)
 
 | Campo | Tipo | Notas |
