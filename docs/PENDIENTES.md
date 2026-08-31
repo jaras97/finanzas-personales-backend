@@ -107,7 +107,8 @@ La suite cubre hoy la lógica de plata y control de acceso. Lo que **no** está 
 - [ ] Reversión de transferencias (revierte ambas patas).
 - [ ] `/cash-flow` y el desglose por categoría de `/summary`.
 - [x] ~~Reset de contraseña por token (`/auth/reset-password`)~~ ✅ 2026-08-30 — 9 tests.
-- [ ] Tests de frontend: hoy no hay ninguno (solo `tsc --noEmit` como red).
+- [x] ~~Tests de frontend~~ ✅ 2026-08-31 — Vitest + Testing Library, 55 tests sobre la lógica pura de mayor riesgo (`transactionDisplay`, interceptor de refresh en `api.ts`, `middleware`, `budgetDisplay`, `format`), con CI propio (typecheck → tests → build) en push y PR. Cada test crítico se validó por mutación: se reintrodujo el bug y se confirmó que el suite lo atrapa.
+- [ ] Ampliar cobertura de frontend a componentes (hoy solo lógica pura): los flujos con más partes móviles son el wizard de import CSV y el modal de comprobantes. Esfuerzo: M.
 
 ## Bugs conocidos del backend (no urgentes, documentados)
 
