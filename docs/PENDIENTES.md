@@ -79,6 +79,13 @@ Orden completo con las 8 fases (transferencias, presupuestos ×2, CSV, reglas, c
 
 ## Fase 5 — Pulido técnico y UI/UX
 
+### Móvil (detectado en la auditoría del 2026-08-31)
+
+Auditoría hecha en iPhone 13 (390×844) sobre las 10 rutas de `(app)`: sin desbordamiento horizontal, sin solapamientos y sin errores de JS. Lo que quedó pendiente son dos incomodidades, ninguna bloqueante:
+
+- [ ] El botón de menú flotante (`fixed left-3 top-3`) queda encima de la barra de búsqueda de Transacciones al hacer scroll, tapando ~40px de su lado izquierdo. Se puede tocar el resto del campo, así que molesta pero no impide usarla. Opciones: ocultarlo al hacer scroll hacia abajo, o moverlo a una barra superior fija. Esfuerzo: S.
+- [ ] Pasada de accesibilidad táctil: hay bastantes objetivos por debajo de los 44px recomendados (13 en Transacciones, 17 en Categorías). Buena parte son legítimos (enlaces en línea, casillas), así que hace falta revisarlos uno por uno antes de agrandar nada — no es un cambio mecánico. Esfuerzo: M.
+
 - [ ] Adoptar `react-hook-form` + `zod` en los formularios (ya están instalados y sin usar; hoy todo es `useState` manual por campo). Esfuerzo: L.
 - [ ] Separar visualmente "compra con tarjeta" de "gasto desde cuenta" en el flujo de nueva transacción (hoy la tarjeta aparece como si fuera una cuenta más, con prefijo `debt-` interno). Esfuerzo: S.
 - [ ] Enlazar o eliminar `WithdrawFromAccountModal` — existe en el código pero ningún botón lo abre (el botón "Depositar" también está comentado en `AccountsSection.tsx`). Esfuerzo: S.
