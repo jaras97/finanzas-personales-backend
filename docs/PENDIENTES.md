@@ -83,7 +83,8 @@ Orden completo con las 8 fases (transferencias, presupuestos ×2, CSV, reglas, c
 
 Auditoría hecha en iPhone 13 (390×844) sobre las 10 rutas de `(app)`: sin desbordamiento horizontal, sin solapamientos y sin errores de JS. Lo que quedó pendiente son dos incomodidades, ninguna bloqueante:
 
-- [ ] El botón de menú flotante (`fixed left-3 top-3`) queda encima de la barra de búsqueda de Transacciones al hacer scroll, tapando ~40px de su lado izquierdo. Se puede tocar el resto del campo, así que molesta pero no impide usarla. Opciones: ocultarlo al hacer scroll hacia abajo, o moverlo a una barra superior fija. Esfuerzo: S.
+- [x] ~~El botón de menú flotante tapaba el buscador al hacer scroll~~ ✅ 2026-08-31 — reemplazado por una barra superior fija y opaca (`sticky top-0`). Cuesta menos espacio que el parche anterior (56px de barra vs 64px de padding muerto que se reservaba solo para esquivar el botón) y elimina el solapamiento de raíz, no solo en la primera pintura. El botón pasó de 40 a 44px.
+- [x] ~~El footer quedaba a media página cuando había poco contenido~~ ✅ 2026-08-31 — `min-h-screen` estaba solo en el contenedor externo; `<main>` medía lo que medía su contenido. Ahora es columna flex de alto completo con el bloque de contenido en `flex-1`. Medido antes/después: Resumen tenía el footer a 357/844 con 487px de hueco. **Ojo**: jsdom no tiene motor de layout, así que esta clase de bug no la atrapa ningún test unitario — se verifica midiendo en navegador real.
 - [ ] Pasada de accesibilidad táctil: hay bastantes objetivos por debajo de los 44px recomendados (13 en Transacciones, 17 en Categorías). Buena parte son legítimos (enlaces en línea, casillas), así que hace falta revisarlos uno por uno antes de agrandar nada — no es un cambio mecánico. Esfuerzo: M.
 
 - [ ] Adoptar `react-hook-form` + `zod` en los formularios (ya están instalados y sin usar; hoy todo es `useState` manual por campo). Esfuerzo: L.
