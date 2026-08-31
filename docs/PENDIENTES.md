@@ -9,10 +9,7 @@ Contexto completo en [PLAN_DE_MEJORA.md](PLAN_DE_MEJORA.md) · [roadmap visual](
 ## 🔴 Acción manual del usuario (no resoluble por código)
 
 - [x] ~~**Rotar la contraseña de Supabase.**~~ ✅ 2026-08-28
-- [ ] **Configurar variables de entorno en Fly.io** para dos funciones ya desplegadas pero inactivas sin llaves:
-  - Reset de contraseña: `RESEND_API_KEY` (crear cuenta en Resend, verificar el dominio `balancedcent.com`), `EMAIL_FROM`, `FRONTEND_URL=https://www.balancedcent.com`. Sin esto el enlace no se envía y el usuario no puede recuperar su cuenta solo.
-  - Comprobantes: `SUPABASE_URL`, `SUPABASE_SERVICE_KEY` y un bucket **privado** llamado `comprobantes` (o el nombre que se ponga en `SUPABASE_STORAGE_BUCKET`). Sin esto, adjuntar devuelve 503 con un mensaje claro.
-  - Comando: `fly secrets set RESEND_API_KEY=... SUPABASE_URL=... SUPABASE_SERVICE_KEY=...`
+- [x] ~~**Configurar variables de entorno en Fly.io**~~ ✅ 2026-08-31 — `RESEND_API_KEY`, `EMAIL_FROM`, `FRONTEND_URL`, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY` cargadas con `fly secrets import`. Bucket privado `comprobantes` creado con tope de 5 MB y lista blanca de MIME (JPG/PNG/WEBP/HEIC/PDF), verificado que rechaza otros tipos y que el acceso público directo está bloqueado. Ojo al reconfigurar: la llave de Supabase es `SUPABASE_SERVICE_KEY`, **no** `SECRET_KEY` — esta última es la de firma de los JWT y pisarla invalida todas las sesiones.
 
 ## Fase 0 — Seguridad y estabilidad (resto)
 
