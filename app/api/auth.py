@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import timedelta, datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Depends, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
@@ -100,6 +100,12 @@ def login(request: Request, response: Response, form_data: OAuth2PasswordRequest
 
         access_token = create_access_token(data={"sub": str(user.id)})
         _set_access_token_cookie(response, access_token)
+
+        # Último acceso: alimenta las métricas del panel de admin (distinguir a
+        # quien usa la app de quien se registró y nunca volvió). Va en la misma
+        # transacción que ya se hace por el refresh token, sin consulta extra.
+        user.last_login_at = datetime.now(timezone.utc)
+        session.add(user)
 
         refresh_token = issue_refresh_token(session, user.id)
         session.commit()

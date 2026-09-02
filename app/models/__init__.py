@@ -8,5 +8,10 @@ from .investment import *
 from .recurring_transaction import *
 from .saving_account import *
 from .subscription import *
+from .subscription_plan import *
+from .subscription_period import *
+from .subscription_event import *
+from .payment import *
+from .user_admin_profile import *
 from .transaction import *
 from .user import *

@@ -19,6 +19,7 @@ from app.database import engine, get_session
 from app.models.refresh_token import RefreshToken
 from app.models.user import User
 from app.models.subscription import Subscription
+from app.utils.datetime_helpers import as_utc
 
 # Manejo de contraseñas
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -148,13 +149,9 @@ def get_current_user_with_subscription_check(token: str = Depends(get_token)) ->
                 detail="Tu suscripción está inactiva. Por favor contacta al administrador para activarla."
             )
 
-        # ✅ CORRECCIÓN: Asegurar que end_date sea timezone-aware
-        end_date = subscription.end_date
-        if end_date.tzinfo is None:
-            end_date = end_date.replace(tzinfo=timezone.utc)
-
+        # En producción estas columnas son naive (app/utils/datetime_helpers).
         # 🚩 Bloquear si la suscripción está vencida
-        if end_date < datetime.now(timezone.utc):
+        if as_utc(subscription.end_date) < datetime.now(timezone.utc):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Tu suscripción ha expirado. Por favor renueva para continuar."

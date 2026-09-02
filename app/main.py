@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
 from app.database import create_db_and_tables
-from app.api import account, admin_users, attachments, auth, auth_extra, budgets, cash_flow, categories, category_rules, csv_import, currencies, debts, recurring_transactions, saving_accounts, saving_goals, subscriptions, subscriptions_admin, summary, summary_extra, transactions
+from app.api import account, admin_users, attachments, auth, auth_extra, budgets, cash_flow, categories, category_rules, csv_import, currencies, debts, recurring_transactions, saving_accounts, saving_goals, subscriptions, subscriptions_admin, summary, summary_extra, transactions, admin_records
 from fastapi.middleware.cors import CORSMiddleware
 from app.routes.fx import router as fx_router
 
@@ -45,6 +45,7 @@ app.include_router(summary_extra.router)
 app.include_router(cash_flow.router)
 app.include_router(auth_extra.router)
 app.include_router(fx_router)
+app.include_router(admin_records.router)
 
 @app.get("/")
 def root():
