@@ -12,6 +12,7 @@ from app.database import get_session
 from app.models.subscription import Subscription
 from app.models.user import User
 from app.schemas.admin import AdminUserRead, AdminUsersPage, RoleUpdate
+from app.utils.datetime_helpers import as_utc
 
 router = APIRouter(prefix="/admin/users", tags=["admin-users"])
 
@@ -21,10 +22,7 @@ def _subscription_status(sub: Optional[Subscription]) -> str:
     vencimiento manda sobre is_active."""
     if not sub:
         return "none"
-    end = sub.end_date
-    if end.tzinfo is None:
-        end = end.replace(tzinfo=timezone.utc)
-    if end < datetime.now(timezone.utc):
+    if as_utc(sub.end_date) < datetime.now(timezone.utc):
         return "expired"
     if not sub.is_active:
         return "inactive"

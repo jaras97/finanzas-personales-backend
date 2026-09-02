@@ -14,6 +14,7 @@ from app.models.subscription import Subscription
 from app.models.user import User
 from app.core.security import get_password_hash, get_current_user
 from app.schemas.user import MIN_PASSWORD_LENGTH
+from app.utils.datetime_helpers import as_utc
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -144,11 +145,8 @@ def subscription_status(user_id=Depends(get_current_user), session: Session = De
     if not sub:
         return {"state": "none"}
 
-    end_date = sub.end_date
-    if end_date and end_date.tzinfo is None:
-        end_date = end_date.replace(tzinfo=timezone.utc)
-
-    expired = end_date and end_date < datetime.now(timezone.utc)
+    end_date = as_utc(sub.end_date) if sub.end_date else None
+    expired = end_date is not None and end_date < datetime.now(timezone.utc)
     if expired:
         return {"state": "expired", "end_date": end_date}
 

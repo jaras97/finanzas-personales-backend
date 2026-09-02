@@ -8,6 +8,7 @@ from app.database import get_session
 from app.schemas.subscription import SubscriptionStatusRead
 from app.models.subscription import Subscription
 from app.core.security import get_current_user
+from app.utils.datetime_helpers import as_utc
 
 router = APIRouter(prefix="/subscriptions", tags=["subscriptions"])
 
@@ -25,12 +26,8 @@ def get_my_subscription(
 
     now = datetime.now(timezone.utc)
 
-    # ✅ Arreglo seguro para evitar el error
-    end_date = subscription.end_date
-    if end_date.tzinfo is None:
-        end_date = end_date.replace(tzinfo=timezone.utc)
-
-    status = "expired" if end_date < now else "active"
+    # En producción estas columnas son naive (ver app/utils/datetime_helpers).
+    status = "expired" if as_utc(subscription.end_date) < now else "active"
 
     return {
         **subscription.dict(),
