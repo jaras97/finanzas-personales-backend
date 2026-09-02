@@ -67,12 +67,18 @@ def get_liabilities_summary(user_id: UUID = Depends(get_current_user_with_subscr
                 )
             ).all()
 
-            total = 0.0
-            for debt in debts:
-                total_paid = sum(t.amount for t in debt.transactions if t.type == "payment")
-                pending = debt.total_amount - total_paid
-                if pending > 0:
-                    total += pending
+            # `debt.total_amount` YA es el saldo pendiente: `pay_debt` lo
+            # decrementa en cada pago. No hay que restar los pagos otra vez.
+            #
+            # Antes había aquí un `- suma de transacciones de tipo "payment"`.
+            # Nunca restó nada, porque `debt.transactions` son `Transaction`
+            # (tipos: income/expense/transfer) y "payment" no es uno de ellos:
+            # el total daba siempre 0. Se quitó porque era una trampa -- leído
+            # de corrido parecía necesario, y hacer que el filtro "funcionara"
+            # habría descontado los pagos dos veces, subestimando el pasivo e
+            # inflando el patrimonio neto. Lo cubre
+            # tests/test_liabilities_double_discount.py.
+            total = sum(d.total_amount for d in debts if d.total_amount > 0)
 
             total_liabilities[currency] = total
 
@@ -116,12 +122,8 @@ def get_net_worth_summary(user_id: UUID = Depends(get_current_user_with_subscrip
                 )
             ).all()
 
-            total_liabilities = 0.0
-            for debt in debts:
-                total_paid = sum(t.amount for t in debt.transactions if t.type == "payment")
-                pending = debt.total_amount - total_paid
-                if pending > 0:
-                    total_liabilities += pending
+            # Mismo criterio que /liabilities-summary (ver nota allí).
+            total_liabilities = sum(d.total_amount for d in debts if d.total_amount > 0)
 
             net_worth = total_assets - total_liabilities
             debt_ratio = (total_liabilities / total_assets * 100) if total_assets > 0 else 0

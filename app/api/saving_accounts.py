@@ -162,7 +162,12 @@ def withdraw_from_saving_account(
             date=datetime.utcnow(),
             category_id=None,  # O crea una categoría genérica 'Ahorros' si prefieres
             saving_account_id=account.id,
-            source_type="account_deposit",
+            # Era "account_deposit" -- copiado del endpoint de depósito. Un
+            # retiro quedaba archivado como depósito, así que cualquier filtro
+            # por origen los confundía. En producción no hay filas mal
+            # etiquetadas (verificado: las 5 existentes son depósitos reales),
+            # así que no hace falta corregir datos históricos.
+            source_type="account_withdraw",
         )
         session.add(transaction)
 

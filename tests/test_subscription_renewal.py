@@ -17,29 +17,16 @@ Concurrían dos defectos independientes:
    fecha futura pero `is_active=False` respondía con ese mensaje -- falso,
    porque el usuario estaba bloqueado -- y quedaba sin salida.
 
-`columnas_naive` replica el esquema de producción a propósito: sin él estos
-tests pasarían en local aun con el bug presente.
+Toda la suite corre ya contra columnas naive, como producción (ver
+`_igualar_fechas_a_produccion` en conftest). Antes eso lo hacía un fixture
+local de este archivo; se quitó cuando dejó de ser la excepción para pasar a
+ser la norma.
 """
 
 import pytest
 from sqlalchemy import text
 
 from app.database import engine
-
-
-@pytest.fixture
-def columnas_naive():
-    """Deja subscription.start_date/end_date como en producción y lo revierte."""
-    def cambiar(tipo: str, usando: str) -> None:
-        with engine.begin() as conn:
-            for col in ("start_date", "end_date"):
-                conn.execute(
-                    text(f"ALTER TABLE subscription ALTER COLUMN {col} TYPE {tipo} USING {col} {usando}")
-                )
-
-    cambiar("timestamp without time zone", "AT TIME ZONE 'UTC'")
-    yield
-    cambiar("timestamp with time zone", "AT TIME ZONE 'UTC'")
 
 
 def _fijar_suscripcion(user_id: str, *, dias_fin: int, is_active: bool = True) -> None:
@@ -67,7 +54,7 @@ def admin(make_user):
 
 class TestRenovarVencida:
     def test_reactivar_vencida_deja_la_suscripcion_utilizable(
-        self, client, admin, make_user, columnas_naive
+        self, client, admin, make_user
     ):
         victima = make_user()
         _fijar_suscripcion(victima["id"], dias_fin=-5)
@@ -85,7 +72,7 @@ class TestRenovarVencida:
         assert fila.vigente is True
 
     def test_renovar_vencida_reinicia_desde_hoy(
-        self, client, admin, make_user, columnas_naive
+        self, client, admin, make_user
     ):
         victima = make_user()
         _fijar_suscripcion(victima["id"], dias_fin=-5)
@@ -102,7 +89,7 @@ class TestRenovarVencida:
         assert fila.is_active is True
 
     def test_el_usuario_recupera_el_acceso_tras_reactivar(
-        self, client, admin, make_user, columnas_naive
+        self, client, admin, make_user
     ):
         """La prueba que de verdad importa: que deje de estar bloqueado."""
         victima = make_user()
@@ -119,7 +106,7 @@ class TestRenovarVencida:
 
 class TestSuscripcionInactiva:
     def test_reactivar_inactiva_con_fecha_futura_no_miente_con_un_400(
-        self, client, admin, make_user, columnas_naive
+        self, client, admin, make_user
     ):
         """Antes respondía "ya tiene una suscripción activa" y no había salida."""
         victima = make_user()
@@ -134,7 +121,7 @@ class TestSuscripcionInactiva:
         assert res.json()["is_active"] is True
 
     def test_renovar_inactiva_la_vuelve_utilizable(
-        self, client, admin, make_user, columnas_naive
+        self, client, admin, make_user
     ):
         victima = make_user()
         _fijar_suscripcion(victima["id"], dias_fin=20, is_active=False)
@@ -150,7 +137,7 @@ class TestSuscripcionInactiva:
 
 class TestNoSeRompeLoQueYaFuncionaba:
     def test_reactivar_una_vigente_y_activa_sigue_rechazandose(
-        self, client, admin, make_user, columnas_naive
+        self, client, admin, make_user
     ):
         """Control: si no, "arreglar" quitando la guarda pasaría los demás tests."""
         victima = make_user()
@@ -165,7 +152,7 @@ class TestNoSeRompeLoQueYaFuncionaba:
         assert "activa" in res.json()["detail"]
 
     def test_renovar_una_vigente_suma_al_vencimiento_actual(
-        self, client, admin, make_user, columnas_naive
+        self, client, admin, make_user
     ):
         victima = make_user()
         _fijar_suscripcion(victima["id"], dias_fin=20, is_active=True)
