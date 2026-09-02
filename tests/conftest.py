@@ -75,8 +75,46 @@ def _schema():
     """
     SQLModel.metadata.drop_all(engine)
     SQLModel.metadata.create_all(engine)
+    _igualar_fechas_a_produccion()
     yield
     SQLModel.metadata.drop_all(engine)
+
+
+def _igualar_fechas_a_produccion() -> None:
+    """Convierte las columnas de fecha a `timestamp WITHOUT time zone`.
+
+    Producción las tiene TODAS así (medido: 21 de 21), mientras que
+    `create_all` las produce `WITH time zone`. Esa diferencia hacía que la
+    suite fuera estructuralmente incapaz de ver una familia entera de bugs:
+    comparar una fecha leída de la BD contra un `datetime` aware funciona con
+    columnas timestamptz y lanza `TypeError` -> HTTP 500 con las naive.
+
+    Ya se coló dos veces a producción por esto; la segunda dejó seis
+    suscripciones que no se podían renovar. Con esta conversión, un fallo así
+    aparece en la suite en vez de en producción.
+
+    Cuando las columnas de producción se migren a `timestamptz`, esta función
+    debe borrarse -- no adaptarse: su valor está en reflejar producción, no en
+    imponer una forma concreta.
+    """
+    with engine.begin() as conn:
+        columnas = conn.execute(
+            text(
+                """
+                SELECT table_name, column_name
+                FROM information_schema.columns
+                WHERE table_schema = 'public'
+                  AND data_type = 'timestamp with time zone'
+                """
+            )
+        ).all()
+        for tabla, columna in columnas:
+            conn.execute(
+                text(
+                    f'ALTER TABLE "{tabla}" ALTER COLUMN "{columna}" '
+                    f'TYPE timestamp without time zone USING "{columna}" AT TIME ZONE \'UTC\''
+                )
+            )
 
 
 @pytest.fixture(autouse=True)

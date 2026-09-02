@@ -191,22 +191,9 @@ def list_subscriptions_admin(
     subscriptions = session.exec(select(Subscription)).all()
     return subscriptions
 
-@router.get("/me", response_model=SubscriptionStatusRead)
-def get_my_subscription(
-    session: Session = Depends(get_session),
-    user_id: UUID = Depends(get_current_user)
-):
-    subscription = session.exec(
-        select(Subscription).where(Subscription.user_id == user_id)
-    ).first()
-
-    if not subscription:
-        raise HTTPException(status_code=404, detail="No tienes una suscripción activa.")
-
-    now = datetime.now(timezone.utc)
-    status = "expired" if as_utc(subscription.end_date) < now else "active"
-
-    return {
-        **subscription.dict(),
-        "status": status
-    }
+# La ruta GET /subscriptions/admin/me que vivía aquí era inalcanzable: se
+# declara después de GET /{user_id}, que la captura primero y falla al
+# interpretar "me" como UUID (y además exige admin, cuando el endpoint decía
+# ser "mi suscripción"). El equivalente vivo es GET /subscriptions/me, en
+# api/subscriptions.py. Se elimina en vez de reordenarla porque estaba
+# duplicando ese endpoint.
