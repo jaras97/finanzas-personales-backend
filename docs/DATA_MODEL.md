@@ -75,7 +75,10 @@ Desde 2026-09-04, dos columnas de presentación:
 | Campo | Tipo | Notas |
 |---|---|---|
 | `color` | str? | **Clave de paleta** (`sky`, `emerald`…), nunca un hex: un hex fijo no puede verse bien en tema claro y oscuro a la vez. Validada contra `PALETTE` en `app/utils/default_categories.py`. Nula en todo lo anterior a esa fecha |
-| `icon` | str? | Nombre de un icono de lucide (`Home`, `Car`…). Se guarda pero el frontend aún no lo pinta |
+| `icon` | str? | Nombre de un icono de lucide (`Home`, `Car`…). El frontend lo resuelve en `lib/categoryIcon.tsx`, con `Tag` de reserva |
+| `parent_id` | int? (FK → `category.id`) | Desde 2026-09-04. Nulo = categoría de primer nivel. **Máximo dos niveles**, validado en `api/categories.py` (no con una constraint: requeriría un trigger). Una subcategoría hereda el tipo del padre, y su nombre es único **por padre**, no global |
+
+> **Qué implica `parent_id` para los reportes.** `/summary` suma cada subcategoría a su padre: el punto de la jerarquía es que el dashboard muestre ocho categorías reconocibles en vez de veinticinco hojas. Y un presupuesto sobre un padre **incluye el gasto de sus hijas** — ignorarlas mostraría plata disponible que ya se gastó, el peor error posible en un presupuesto.
 
 > Cuando `color` es nulo, el frontend **deriva el color de un hash estable del nombre** (`lib/categoryStyle.ts`). Eso corrige un defecto anterior: los gráficos asignaban color por POSICIÓN, así que una categoría cambiaba de color entre un mes y otro según su ranking de gasto. La solución por hash arregla también las categorías que ya existían, sin tocar una sola fila.
 

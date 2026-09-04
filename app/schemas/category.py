@@ -24,6 +24,9 @@ class CategoryCreate(BaseModel):
     type: CategoryType
     color: Optional[str] = None
     icon: Optional[str] = None
+    # Nulo = categoría de primer nivel. La validación de que exista, sea del
+    # usuario, no sea ya una subcategoría y comparta tipo vive en el endpoint.
+    parent_id: Optional[int] = None
 
     _v_color = field_validator("color")(_validar_color)
 
@@ -37,6 +40,10 @@ class CategoryRead(BaseModel):
     system_key: Optional[str] = None
     color: Optional[str] = None
     icon: Optional[str] = None
+    parent_id: Optional[int] = None
+    # Denormalizado para que los selectores puedan mostrar "Padre › Hija" sin
+    # cruzar la lista consigo misma en cada render.
+    parent_name: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
