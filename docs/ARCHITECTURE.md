@@ -112,12 +112,19 @@ Antes de esta sesión, `saving_account.currency` ya era `varchar` en la base loc
 
 ### Pendientes
 
-- **`liabilities-summary` / `net-worth-summary`** (`summary_extra.py`): el cálculo de "pagos realizados" filtra `Transaction.type == "payment"`, valor que **nunca se asigna** (el enum real es `income`/`expense`/`transfer`). El bug está enmascarado porque `debt.total_amount` ya se decrementa en vivo en `/debts/{id}/pay`, así que el resultado final coincide con lo esperado — pero el código es frágil y engañoso si se refactoriza sin saber esto.
+> Esta lista se revisó y depuró el **2026-09-02**; había ido derivando y daba por abiertas varias cosas ya arregladas. `docs/PENDIENTES.md` es la fuente de verdad con fechas y detalle; acá quedan solo las que siguen vivas.
+
 - **`DebtTransactionType.charge_reversal`** referenciado en `transactions.py::reverse_transaction` no existe en el enum (`payment`/`interest_charge`/`extra_charge`); el `hasattr()` guard hace que las reversiones de compras de tarjeta se registren como `extra_charge` en vez de un tipo dedicado de reversión.
-- **`POST /saving-accounts/{id}/withdraw`** etiqueta la transacción resultante con `source_type="account_deposit"` (debería ser algo como `account_withdraw`) — copy-paste artifact.
 - **Inconsistencia de respuesta**: `deposit` devuelve `{"message", "nuevo_balance"}` mientras que `withdraw` devuelve el `SavingAccountRead` completo.
-- **Borrado de transferencias**: `DELETE /transactions/{id}` revierte el balance solo de la fila borrada; si se borra una sola pata de una transferencia (en vez de ambas), la otra pata queda huérfana con su efecto de balance sin revertir.
 - **Modelos sin uso**: `Account` e `Investment` no los referencia ningún endpoint — candidatos a eliminar si se confirma que no hay planes de retomarlos.
-- **Reset de contraseña en memoria**: `RESET_TOKENS` en `auth_extra.py` es un dict de proceso — se pierde en cada reinicio/deploy y no escala a más de una instancia. El envío de email está comentado (`send_email`), así que el flujo de "olvidé mi contraseña" no envía correos reales hoy.
 - **`/fx/rate`** no tiene dependencia de auth — es un endpoint público, y su cache de 12h es en memoria de proceso (no compartido entre instancias, se pierde al reiniciar).
 - **Balance inicial sin ledger**: crear una cuenta con `balance` distinto de cero no genera ninguna fila en `Transaction` — el balance inicial no queda trazado como movimiento.
+- **Drift de fechas con producción**: las 21 columnas `timestamp` de producción son *sin* zona horaria y las de local/tests son *con* zona (`create_all`). Comparar una fecha de la BD contra un `datetime` aware funciona en local y da **500 solo en producción**; ya ocurrió dos veces. Contenido por dos lados: `app/utils/datetime_helpers.as_utc()` en el código y `conftest._igualar_fechas_a_produccion` en la suite. Migrar las columnas a `timestamptz` sigue pendiente y exige revisar antes los `datetime.utcnow()` que hoy escriben naive de forma consistente.
+
+### Resueltos (se dejan anotados porque el código todavía lleva sus cicatrices)
+
+- ~~`liabilities-summary` filtraba por un `Transaction.type == "payment"` inexistente~~ — **2026-09-02**. El resultado siempre fue correcto (la resta valía 0), pero el código parecía hacer algo: "arreglar" el filtro habría descontado los pagos dos veces sobre un saldo que `pay_debt` ya decrementa. Se eliminó la resta muerta; `tests/test_liabilities_double_discount.py` falla ante ese cambio plausible.
+- ~~`withdraw` etiquetaba como `source_type="account_deposit"`~~ — **2026-09-02**, ahora `account_withdraw`. Sin datos históricos que corregir.
+- ~~Borrado de transferencias dejaba una pata huérfana~~ — **2026-08-30**. Era peor: revertía **dos veces** la cuenta de la pata borrada. Ahora borra el grupo completo por `transfer_group_id`.
+- ~~`RESET_TOKENS` en memoria~~ — **2026-08-30**, reemplazado por la tabla `password_reset_token` (hasheados, un solo uso, 60 min) con envío real por Resend.
+- ~~No se podía renovar una suscripción vencida~~ — **2026-09-01**, ver `docs/PENDIENTES.md` y la nota de fechas en `API.md`.

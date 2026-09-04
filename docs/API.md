@@ -48,7 +48,7 @@ Niveles de auth usados en las tablas:
 | GET | `/saving-accounts` (`/`) | Lista cuentas del usuario. |
 | PUT | `/saving-accounts/{id}` | Renombrar libre; cambio de `type` bloqueado (400) si la cuenta ya tiene transacciones. |
 | DELETE | `/saving-accounts/{id}` | Solo si tiene **cero** transacciones asociadas (independiente del balance). |
-| POST | `/saving-accounts/{id}/withdraw` | `{amount>0}` → 400 si fondos insuficientes. Registra `expense` con `source_type="account_deposit"` (⚠️ nombre mal etiquetado, ver ARCHITECTURE.md). |
+| POST | `/saving-accounts/{id}/withdraw` | `{amount>0}` → 400 si fondos insuficientes. Registra `expense` con `source_type="account_withdraw"` (era `account_deposit`, copiado del endpoint de depósito; corregido el 2026-09-02 — no hubo que arreglar datos históricos porque ningún retiro llegó a archivarse). |
 | POST | `/saving-accounts/{id}/deposit` | `{amount>0, description}` → `{"message", "nuevo_balance"}` (forma de respuesta distinta a withdraw). Registra `income` con `source_type="account_deposit"`. |
 | POST | `/saving-accounts/{id}/close` | Requiere `balance == 0` (400 si no). |
 | POST | `/saving-accounts/{id}/reopen` | Requiere estado `closed`. |
@@ -139,12 +139,15 @@ Atada 1:1 a una `SavingAccount` completa — "esta cuenta ES mi fondo para el vi
 
 | Método | Ruta | Auth | Descripción |
 |---|---|---|---|
-| POST | `/subscriptions/admin/activate` | Admin | Query `user_id`, `months` (default 1). Crea o resetea suscripción vencida. 400 si ya tiene una activa vigente. |
-| POST | `/subscriptions/admin/renew` | Admin | Query `user_id`, `months`. Extiende `end_date` en `30*months` días, o reinicia desde ahora si ya venció. |
+| POST | `/subscriptions/admin/activate` | Admin | Query `user_id`, `months` (default 1), `plan_id` (opcional: si se envía, **su duración manda sobre `months`**), `note` (opcional, queda en el historial). Crea la suscripción, o reactiva una vencida **o marcada inactiva**. Pone `is_active=True`. 400 solo si ya está vigente **y** activa. Deja período + evento en el historial. |
+| POST | `/subscriptions/admin/renew` | Admin | Query `user_id`, `months`, `plan_id`, `note` (igual que activate). Vigente → suma `30*months` días al vencimiento actual; vencida → reinicia desde ahora. Pone `is_active=True`. El período nuevo arranca donde terminaba el anterior, para que el historial no muestre tramos solapados. |
 | GET | `/subscriptions/admin/{user_id}` | Admin | 404 si no existe. |
-| DELETE | `/subscriptions/admin/{user_id}` | Admin | Elimina la fila de suscripción. |
+| DELETE | `/subscriptions/admin/{user_id}` | Admin | Elimina la fila de suscripción. **No borra períodos ni pagos** (la persona sí estuvo cubierta y sí pagó); deja un evento `delete` en la bitácora. |
 | GET | `/subscriptions/admin` (`/`) | Admin | Lista todas las suscripciones. |
-| ~~GET~~ | ~~`/subscriptions/admin/me`~~ | — | ⚠️ **Código muerto, inalcanzable**: la ruta `/{user_id}` de arriba se declara antes y captura `/me`, que además exige Admin y falla al parsear `"me"` como UUID. Usar `/subscriptions/me`. |
+
+> **Nota sobre fechas (2026-09-01).** `activate` y `renew` comparaban `end_date` contra un `datetime` aware. En producción esas columnas son `timestamp WITHOUT time zone`, así que la comparación lanzaba `TypeError` → **500**, y renovar una suscripción vencida era imposible. Todas las comparaciones de fecha pasan ahora por `app/utils/datetime_helpers.as_utc()`. Ver `docs/PENDIENTES.md` para el drift de esquema completo.
+>
+> La ruta `GET /subscriptions/admin/me` fue **eliminada** (2026-09-02): era inalcanzable porque `/{user_id}` se declara antes y la captura. El equivalente vivo es `GET /subscriptions/me`.
 
 ## Movimientos recurrentes — `app/api/recurring_transactions.py` (prefijo `/recurring-transactions`, todas Auth+Sub)
 
@@ -203,6 +206,41 @@ Si la descripción de una transacción **contiene** `match_text` (comparación e
 |---|---|---|
 | GET | `/admin/users` (`/`) | Query `search` (coincidencia parcial de correo, case-insensitive), `page` (≥1), `page_size` (1-100, default 25) → `{items, total, page, page_size, total_pages}`. Cada item trae `id, email, role, created_at` + el estado de suscripción ya resuelto (`subscription_status`: `active`\|`expired`\|`inactive`\|`none`, más `subscription_start`/`subscription_end`), para no obligar al frontend a cruzar dos endpoints por fila. Ordenado por fecha de registro descendente. |
 | PATCH | `/admin/users/{user_id}/role` | Body `{role: "user" \| "admin"}` → `AdminUserRead`. 404 si el usuario no existe; **400 si el cambio dejaría al sistema sin ningún administrador** (protección contra quedarse sin acceso al panel). Cambiar al mismo rol que ya tiene es un no-op idempotente. |
+
+## Historial y paramétricas de administración — `app/api/admin_records.py` (prefijo `/admin`, todas Admin)
+
+Registro de clientes: quién es cliente desde cuándo, qué se le cobró, quién le renovó y si de verdad usa la app. Añadido el 2026-09-01.
+
+**Planes** (paramétrica). El precio se **copia** al período en el momento de otorgarlo, así que cambiar el precio de un plan no reescribe lo ya cobrado.
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| GET | `/admin/subscription-plans` | Query `include_inactive` (default `false`) → `List[PlanRead]`, ordenados por duración. |
+| POST | `/admin/subscription-plans` | Body `{name, duration_months (1-60), price, currency, is_active}` → 201. |
+| PUT | `/admin/subscription-plans/{plan_id}` | Campos parciales. 404 si no existe. |
+| DELETE | `/admin/subscription-plans/{plan_id}` | **Baja lógica** (`is_active=False`), nunca física: los períodos y pagos históricos lo referencian y borrarlo dejaría el historial sin poder explicar qué se cobró. |
+
+**Etiquetas** (paramétrica) para clasificar personas: prueba, cortesía, moroso…
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| GET | `/admin/tags` | → `List[TagRead]` ordenadas por nombre. |
+| POST | `/admin/tags` | Body `{name, color}` → 201. 400 si el nombre ya existe (comparación case-insensitive). |
+| DELETE | `/admin/tags/{tag_id}` | Quita primero las asignaciones y luego la etiqueta (si no, la FK lo impide). |
+
+**Ficha de una persona.** Todos los endpoints que la modifican devuelven la ficha completa ya actualizada, para que el frontend no tenga que volver a pedirla.
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| GET | `/admin/users/{user_id}/detail` | → `AdminUserDetail`: suscripción vigente, `periods`, `events`, `payments`, `total_paid`, `first_subscribed_at`, `metrics` (`last_login_at`, `has_ever_logged_in`, `days_since_last_login`, conteo de transacciones/cuentas/deudas), `tags` y los campos de ficha. Los correos de quien actuó se resuelven en **una** consulta, no por fila. |
+| PUT | `/admin/users/{user_id}/profile` | Body `{full_name, phone, notes}` (parcial). Datos privados del admin: el usuario no los ve ni los edita. |
+| PUT | `/admin/users/{user_id}/tags` | Body `{tag_ids: [...]}`. **Reemplaza el conjunto completo.** 404 si alguna etiqueta no existe. |
+| POST | `/admin/users/{user_id}/payments` | Body `{amount (>0), currency, method (`cash`\|`transfer`\|`card`\|`other`), reference, note, paid_at, period_id}` → 201. 404 si `period_id` no es de ese usuario. Deja evento en la bitácora. |
+| DELETE | `/admin/users/{user_id}/payments/{payment_id}` | 404 si el pago no es de ese usuario. Deja constancia de la eliminación en la bitácora. |
+
+**Advertencias:**
+- `total_paid` **suma importes sin convertir monedas**. Hoy es correcto porque todo se cobra en COP; con varias monedas hay que pasarlo a un desglose por moneda.
+- Los períodos con `origin="backfill"` fueron **reconstruidos** por la migración a partir de la suscripción vigente: no son historia registrada. Todo lo anterior al 2026-09-01 se perdió y no es recuperable.
 
 ## Tipo de cambio — `app/routes/fx.py` (prefijo `/fx`)
 
