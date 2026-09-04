@@ -70,6 +70,18 @@ Categorías del sistema (creadas automáticamente al registrar un usuario, ver `
 
 (`opening_balance` y `adjustment` existen como valores del enum `SystemCategoryKey` pero no se usan actualmente.)
 
+Desde 2026-09-04, dos columnas de presentación:
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| `color` | str? | **Clave de paleta** (`sky`, `emerald`…), nunca un hex: un hex fijo no puede verse bien en tema claro y oscuro a la vez. Validada contra `PALETTE` en `app/utils/default_categories.py`. Nula en todo lo anterior a esa fecha |
+| `icon` | str? | Nombre de un icono de lucide (`Home`, `Car`…). Se guarda pero el frontend aún no lo pinta |
+
+> Cuando `color` es nulo, el frontend **deriva el color de un hash estable del nombre** (`lib/categoryStyle.ts`). Eso corrige un defecto anterior: los gráficos asignaban color por POSICIÓN, así que una categoría cambiaba de color entre un mes y otro según su ranking de gasto. La solución por hash arregla también las categorías que ya existían, sin tocar una sola fila.
+
+**Categorías sembradas.** Al registrarse se crean 13 categorías de la taxonomía sugerida (`app/utils/default_categories.py`, derivada de `docs/Categorias_Finanzas_Egresos_e_Ingresos.pdf`). **No son `is_system`**: el usuario puede renombrarlas, recolorearlas y desactivarlas. Las de sistema (Transferencia, Sin categorizar…) son operativas y siguen viviendo en `category_helpers.py`.
+
+
 ## `Debt` (`app/models/debt.py`)
 
 | Campo | Tipo | Notas |

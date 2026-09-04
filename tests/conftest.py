@@ -234,10 +234,24 @@ def make_account(client, auth):
 
 @pytest.fixture
 def make_category(client, auth):
+    """Crea una categoría, o devuelve la que ya exista con ese nombre.
+
+    Desde 2026-09-04 el registro siembra 13 categorías de la taxonomía
+    sugerida, así que nombres comunes como "Transporte" o "Salario" ya están
+    ocupados y `POST /categories` responde 400. Un test que solo necesita
+    *una categoría llamada así* no debería romperse por eso; los que sí
+    comprueban el rechazo de duplicados llaman al endpoint directamente.
+    """
+
     def _make(name="Categoría", type_="expense"):
         res = client.post(
             "/categories", json={"name": name, "type": type_}, headers=auth
         )
+        if res.status_code == 400 and "existe" in res.text:
+            existentes = client.get("/categories", headers=auth).json()
+            ya = next((c for c in existentes if c["name"].lower() == name.lower()), None)
+            assert ya is not None, f"400 por duplicado pero no encuentro '{name}'"
+            return ya
         assert res.status_code == 200, res.text
         return res.json()
 

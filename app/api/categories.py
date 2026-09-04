@@ -9,7 +9,9 @@ from sqlmodel import Session, select, func
 from app.database import engine
 from app.models.category import Category, CategoryType
 from app.models.transaction import Transaction
-from app.schemas.category import CategoryCreate, CategoryRead
+from app.schemas.category import CategoryCreate, CategoryRead, SuggestedCategoriesResult
+from app.utils.category_helpers import sembrar_categorias_sugeridas
+from app.utils.default_categories import DEFAULT_CATEGORIES
 from app.core.security import get_current_user_with_subscription_check
 
 router = APIRouter(prefix="/categories", tags=["categories"])
@@ -117,6 +119,13 @@ def update_category(
             category.name = category_data.name
             category.type = category_data.type
 
+        # El color y el icono se pueden cambiar SIEMPRE, incluso en las de
+        # sistema: son presentación, no comportamiento. Lo que se bloquea de
+        # una categoría de sistema es su tipo, porque de él dependen las
+        # transferencias y los pagos de deuda.
+        category.color = category_data.color
+        category.icon = category_data.icon
+
         session.add(category)
         session.commit()
         session.refresh(category)
@@ -194,3 +203,32 @@ def reactivate_category(
         session.commit()
         session.refresh(category)
         return category
+
+
+@router.post("/suggested", response_model=SuggestedCategoriesResult, status_code=201)
+def add_suggested_categories(
+    user_id: UUID = Depends(get_current_user_with_subscription_check),
+):
+    """Añade las categorías de la taxonomía sugerida que al usuario le falten.
+
+    Opt-in a propósito, y solo aditivo: no renombra, no fusiona y no desactiva
+    nada. A alguien que ya curó 29 categorías propias, inyectarle 25 genéricas
+    de golpe le haría daño; que lo pida quien lo quiera.
+
+    La comparación ignora tildes y mayúsculas, porque en producción ya conviven
+    "Alimentacion", "Alimentación" y "Alimentación y mercados": sin eso, esto
+    crearía duplicados de lo que la persona ya tiene.
+
+    Ofrece las 25 completas (no solo el núcleo): quien pulsa el botón está
+    pidiendo explícitamente el catálogo, no un arranque mínimo.
+    """
+    with Session(engine) as session:
+        creadas = sembrar_categorias_sugeridas(user_id, session, solo_nucleo=False)
+        session.commit()
+        for c in creadas:
+            session.refresh(c)
+
+        return SuggestedCategoriesResult(
+            created=[CategoryRead.model_validate(c) for c in creadas],
+            skipped_existing=len(DEFAULT_CATEGORIES) - len(creadas),
+        )
