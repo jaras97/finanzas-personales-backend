@@ -116,6 +116,22 @@ def get_summary(
             income_by_category = defaultdict(float)
             daily_summary = defaultdict(lambda: {"income": 0.0, "expense": 0.0})
 
+            def _agrupar_en(categoria):
+                """Devuelve bajo qué categoría se reporta un movimiento.
+
+                Una subcategoría suma a su PADRE. Ese es el sentido de tener
+                jerarquía: el resumen muestra ocho categorías reconocibles en
+                vez de veinticinco hojas, que es justo la saturación que el
+                PDF de taxonomía pedía evitar. El detalle por subcategoría
+                sigue disponible en la lista de transacciones.
+
+                Se resuelve un solo salto porque la jerarquía es de dos
+                niveles (ver models/category.py).
+                """
+                if categoria.parent_id and categoria.parent:
+                    return (categoria.parent.id, categoria.parent.name)
+                return (categoria.id, categoria.name)
+
             for tx in transactions:
                 # Día local según tz del navegador
                 tx_local_day = _to_local_day(tx.date, tz)
@@ -123,12 +139,12 @@ def get_summary(
                 if tx.type == TransactionType.income:
                     total_income += tx.amount
                     if tx.category:
-                        income_by_category[(tx.category.id, tx.category.name)] += tx.amount
+                        income_by_category[_agrupar_en(tx.category)] += tx.amount
                     daily_summary[tx_local_day]["income"] += tx.amount
                 elif tx.type == TransactionType.expense:
                     total_expense += tx.amount
                     if tx.category:
-                        expense_by_category[(tx.category.id, tx.category.name)] += tx.amount
+                        expense_by_category[_agrupar_en(tx.category)] += tx.amount
                     daily_summary[tx_local_day]["expense"] += tx.amount
 
             balance = total_income - total_expense

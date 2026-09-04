@@ -36,4 +36,17 @@ class Category(SQLModel, table=True):
     # genérico si no reconoce el nombre.
     icon: Optional[str] = Field(default=None, max_length=40)
 
+    # Subcategorías (2026-09-04). Nulo = categoría de primer nivel.
+    # La jerarquía está limitada a DOS niveles a propósito: es la recomendación
+    # del PDF de taxonomía ("padre > subcategoría, para no saturar") y evita
+    # tener que resolver árboles arbitrarios en cada reporte. La validación de
+    # profundidad vive en api/categories.py, no acá, porque necesita consultar.
+    parent_id: Optional[int] = Field(default=None, foreign_key="category.id", index=True)
+
     transactions: List["Transaction"] = Relationship(back_populates="category")
+
+    # Relación al padre, para que los reportes puedan sumar una subcategoría a
+    # su padre sin una consulta por transacción.
+    parent: Optional["Category"] = Relationship(
+        sa_relationship_kwargs={"remote_side": "Category.id"}
+    )

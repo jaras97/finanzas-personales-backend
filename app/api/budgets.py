@@ -53,12 +53,26 @@ def _calc_spent(
     """Gasto real de una categoría en una moneda, dentro de un mes -- misma
     lógica de exclusión que GET /summary (transferencias, rendimientos y
     pagos de deuda no cuentan), separado por cuentas y por compras con
-    tarjeta de crédito en esa misma moneda."""
+    tarjeta de crédito en esa misma moneda.
+
+    **Incluye las subcategorías.** Un presupuesto de "Transporte" que ignorara
+    "Transporte › Gasolina" mostraría al usuario que le queda plata cuando ya
+    la gastó -- el peor error posible en un presupuesto. Un presupuesto puesto
+    directamente sobre la subcategoría solo cuenta esa.
+    """
+    from app.models.category import Category
+
+    ids = [category_id] + [
+        c.id
+        for c in session.exec(
+            select(Category).where(Category.parent_id == category_id)
+        ).all()
+    ]
     from_accounts = session.exec(
         select(func.sum(Transaction.amount))
         .join(SavingAccount, Transaction.saving_account_id == SavingAccount.id)
         .where(Transaction.user_id == user_id)
-        .where(Transaction.category_id == category_id)
+        .where(Transaction.category_id.in_(ids))
         .where(Transaction.type == TransactionType.expense)
         .where(Transaction.date >= month_start)
         .where(Transaction.date <= dt.datetime.combine(month_end, dt.time.max))
@@ -77,7 +91,7 @@ def _calc_spent(
         select(func.sum(Transaction.amount))
         .join(Debt, Transaction.debt_id == Debt.id)
         .where(Transaction.user_id == user_id)
-        .where(Transaction.category_id == category_id)
+        .where(Transaction.category_id.in_(ids))
         .where(Transaction.date >= month_start)
         .where(Transaction.date <= dt.datetime.combine(month_end, dt.time.max))
         .where(Transaction.is_cancelled == False)  # noqa: E712

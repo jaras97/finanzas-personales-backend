@@ -86,7 +86,9 @@ Atada 1:1 a una `SavingAccount` completa — "esta cuenta ES mi fondo para el vi
 |---|---|---|
 | POST | `/categories/suggested` | Añade las categorías de la taxonomía que al usuario le **falten** → `{created: [...], skipped_existing: n}`. Solo aditivo: nunca renombra, fusiona ni desactiva nada. Compara ignorando tildes y mayúsculas (en producción conviven «Alimentacion» y «Alimentación»). Ofrece las 25 completas, no solo el núcleo: quien lo pulsa pide el catálogo. |
 
-`POST`/`PUT /categories` aceptan además `color` (clave de paleta, 422 si no está en la lista) e `icon`. El color se puede cambiar incluso en categorías de sistema: es presentación, no comportamiento.
+`POST`/`PUT /categories` aceptan además `color` (clave de paleta, 422 si no está en la lista), `icon` y `parent_id`. El color y el icono se pueden cambiar incluso en categorías de sistema: son presentación, no comportamiento. `parent_id` no, porque los flujos que las buscan por `system_key` las esperan en el primer nivel.
+
+**Subcategorías** (desde 2026-09-04). `parent_id` nulo = primer nivel. El endpoint rechaza con 400: un tercer nivel, mezclar tipos con el padre, que una categoría sea su propia madre, y que un padre con hijas se convierta en subcategoría; con 404 un padre inexistente o de otro usuario. `DELETE` sobre un padre con subcategorías activas responde 400 (se bloquea en vez de cascada, para que la acción sea reversible). `GET /categories` devuelve `parent_id` y `parent_name`, ordenado con cada hija justo después de su padre.
 
 ## Transacciones — `app/api/transactions.py` (prefijo `/transactions`, todas Auth+Sub)
 
