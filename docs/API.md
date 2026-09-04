@@ -80,6 +80,14 @@ Atada 1:1 a una `SavingAccount` completa — "esta cuenta ES mi fondo para el vi
 
 **`monthly_savings_needed`**: `(target_amount − saldo_actual) / meses_restantes` hasta `target_date`. Si el saldo ya alcanzó o superó la meta, es `0`. Si `target_date` cae en el mes en curso (o ya pasó), es todo lo que falta de una vez — ya no hay margen para repartirlo entre meses.
 
+### Categorías sugeridas
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| POST | `/categories/suggested` | Añade las categorías de la taxonomía que al usuario le **falten** → `{created: [...], skipped_existing: n}`. Solo aditivo: nunca renombra, fusiona ni desactiva nada. Compara ignorando tildes y mayúsculas (en producción conviven «Alimentacion» y «Alimentación»). Ofrece las 25 completas, no solo el núcleo: quien lo pulsa pide el catálogo. |
+
+`POST`/`PUT /categories` aceptan además `color` (clave de paleta, 422 si no está en la lista) e `icon`. El color se puede cambiar incluso en categorías de sistema: es presentación, no comportamiento.
+
 ## Transacciones — `app/api/transactions.py` (prefijo `/transactions`, todas Auth+Sub)
 
 | Método | Ruta | Descripción |

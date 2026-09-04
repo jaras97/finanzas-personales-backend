@@ -136,3 +136,74 @@ def create_base_categories(user_id: UUID, session: Session) -> None:
         default_name="Sin categorizar",
         type_=CategoryType.both,
     )
+
+    # Núcleo de la taxonomía sugerida (13 categorías). Sin esto el usuario
+    # nuevo llega a una lista vacía y termina inventando nombres sueltos
+    # ("Bedo, gastos .", "Max", nombres de banco) -- medido en producción.
+    # Es idempotente: si ya las tiene, no crea nada.
+    sembrar_categorias_sugeridas(user_id, session, solo_nucleo=True)
+
+
+# ---------------------------------------------------------------------------
+# Taxonomía sugerida (NO son categorías de sistema: el usuario las controla)
+# ---------------------------------------------------------------------------
+
+def _normalizar(nombre: str) -> str:
+    """Compara nombres ignorando tildes, mayúsculas y puntuación.
+
+    Necesario porque la gente ya escribió "Alimentacion", "Alimentación" y
+    "Alimentación y mercados": sin normalizar, ofrecerle la taxonomía a un
+    usuario existente le crearía duplicados de lo que ya tiene.
+    """
+    import re
+    import unicodedata
+
+    base = unicodedata.normalize("NFKD", nombre.lower()).encode("ascii", "ignore").decode()
+    return re.sub(r"[^a-z0-9]+", " ", base).strip()
+
+
+def sembrar_categorias_sugeridas(
+    user_id: UUID,
+    session: Session,
+    *,
+    solo_nucleo: bool = True,
+) -> list[Category]:
+    """Crea las categorías de la taxonomía que al usuario le FALTAN.
+
+    Nunca renombra, fusiona ni desactiva nada de lo que ya tenga: solo añade lo
+    que no está. Por eso es seguro llamarla sobre una cuenta con años de uso.
+
+    `solo_nucleo=True` (registro de un usuario nuevo) siembra las 13
+    recomendadas; `False` (botón "Añadir sugeridas") ofrece las 25.
+
+    No hace commit: lo hace quien llama.
+    """
+    from app.utils.default_categories import CORE_CATEGORIES, DEFAULT_CATEGORIES
+
+    candidatas = CORE_CATEGORIES if solo_nucleo else DEFAULT_CATEGORIES
+
+    existentes = session.exec(
+        select(Category).where(Category.user_id == user_id)
+    ).all()
+    ya_tiene = {_normalizar(c.name) for c in existentes}
+
+    creadas: list[Category] = []
+    for cand in candidatas:
+        if _normalizar(cand.name) in ya_tiene:
+            continue
+        nueva = Category(
+            name=cand.name,
+            type=cand.type,
+            user_id=user_id,
+            color=cand.color,
+            icon=cand.icon,
+            # is_system=False a propósito: son sugerencias, no infraestructura.
+            # El usuario puede renombrarlas, recolorearlas o desactivarlas.
+        )
+        session.add(nueva)
+        creadas.append(nueva)
+        # Se agrega al set para que dos candidatas que normalizan igual no se
+        # dupliquen entre sí dentro de la misma llamada.
+        ya_tiene.add(_normalizar(cand.name))
+
+    return creadas

@@ -26,4 +26,14 @@ class Category(SQLModel, table=True):
     is_system: bool = Field(default=False, index=True)
     system_key: Optional[str] = Field(default=None, index=True)
 
+    # Clave de paleta ("sky", "emerald"...), NO un hex: el frontend la resuelve
+    # a un tono legible en tema claro y oscuro. Nulo en todo lo creado antes de
+    # 2026-09-04 y en lo que el usuario cree sin elegir color; en ese caso el
+    # color se deriva de un hash estable del nombre, para que una categoría no
+    # cambie de color entre un mes y otro.
+    color: Optional[str] = Field(default=None, max_length=20)
+    # Nombre de un icono de lucide ("Home", "Car"...). El frontend cae en uno
+    # genérico si no reconoce el nombre.
+    icon: Optional[str] = Field(default=None, max_length=40)
+
     transactions: List["Transaction"] = Relationship(back_populates="category")
