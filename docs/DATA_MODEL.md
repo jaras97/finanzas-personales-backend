@@ -2,6 +2,8 @@
 
 Todos los modelos están en `app/models/` (SQLModel). Los PKs de entidades orientadas al usuario final usan UUID (`user`, `account`, `investment`); el resto usa entero autoincremental.
 
+> **Aviso sobre las columnas `datetime`.** En **producción** las 21 columnas de fecha son `timestamp WITHOUT time zone`; en local y en la suite, `create_all` las produce *con* zona. Por eso toda comparación contra un `datetime` aware debe pasar por `app/utils/datetime_helpers.as_utc()`: sin eso funciona en local y lanza `TypeError` → **500 solo en producción** (ya ocurrió dos veces). La suite replica el esquema de producción vía `conftest._igualar_fechas_a_produccion`. Detalle en [PENDIENTES.md](PENDIENTES.md).
+
 ## `User` (`app/models/user.py`)
 
 | Campo | Tipo | Notas |
@@ -12,6 +14,7 @@ Todos los modelos están en `app/models/` (SQLModel). Los PKs de entidades orien
 | `created_at` | datetime | default `utcnow` |
 | `role` | str | default `"user"`; `"admin"` habilita endpoints de `subscriptions_admin.py` |
 | `report_currency` | str (FK → `currency.code`) | default `"COP"` (desde 2026-08-30); moneda del patrimonio neto consolidado, ver `GET /summary-extra/net-worth-consolidated` en [API.md](API.md) |
+| `last_login_at` | datetime \| None | desde 2026-09-01; se refresca en cada login. **`None` significa "nunca ha entrado"**, que es información útil y no un dato faltante: alimenta las métricas de la ficha de admin |
 
 ## `Currency` (`app/models/currency.py`, tabla `currency`)
 
@@ -119,7 +122,7 @@ Ledger central de todos los movimientos.
 | `is_cancelled` | bool | default `False` |
 | `reversed_transaction_id` | int? (self-FK) | en la fila de **reversión**, apunta a la original |
 | `debt_id` | int? (FK → `debt.id`) | |
-| `source_type` | str? | `debt_payment`, `credit_card_purchase`, `credit_card_purchase_reversal`, `transfer`, `investment_yield`, `account_deposit`, o `None` para movimientos manuales |
+| `source_type` | str? | `debt_payment`, `credit_card_purchase`, `credit_card_purchase_reversal`, `transfer`, `investment_yield`, `account_deposit`, `account_withdraw` (desde 2026-09-02; antes los retiros se archivaban como `account_deposit`), o `None` para movimientos manuales. El frontend solo ramifica por `credit_card_purchase` y `transfer`; el resto se muestra como un ingreso o egreso normal |
 | `transfer_group_id` | UUID? | indexado, une las dos patas de una transferencia |
 | `reversal_note` | str? | máx. 500 caracteres |
 
@@ -247,7 +250,78 @@ El binario vive en Supabase Storage, en un bucket **privado**: los archivos se s
 | `start_date` | datetime | |
 | `end_date` | datetime | |
 | `is_active` | bool | default `True` |
-| `created_at` / `updated_at` | datetime | default `utcnow`; `updated_at` nunca se refresca realmente en `subscriptions_admin.py` |
+| `created_at` / `updated_at` | datetime | default `utcnow`; desde 2026-09-01 `updated_at` **sí** se refresca en `activate`/`renew` |
+
+> **Esta tabla guarda solo el estado ACTUAL y se sobrescribe.** `activate` reinicia `start_date` cada vez que reactiva una suscripción vencida, así que no sirve para responder "¿desde cuándo es cliente?". Para eso está `subscription_period`. Se mantiene deliberadamente como única fuente de verdad del **acceso** (`get_current_user_with_subscription_check` la lee): el historial vive aparte para que un fallo allí nunca pueda dejar a nadie sin entrar.
+
+## Historial de suscripciones y paramétricas de administración (desde 2026-09-01)
+
+Ninguna de estas tablas participa en la decisión de acceso. Migración `b1c2d3e4f5a6`.
+
+### `SubscriptionPlan` (`app/models/subscription_plan.py`, tabla `subscription_plan`)
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| `id` | int (PK) | |
+| `name` | str | indexado |
+| `duration_months` | int | manda sobre el `months` de la URL cuando se envía `plan_id` |
+| `price` / `currency` | float / str (FK → `currency.code`) | se **copian** al período al otorgarlo: cambiar el precio no reescribe lo ya cobrado |
+| `is_active` | bool | baja lógica; nunca se borra físicamente porque períodos y pagos lo referencian |
+
+### `SubscriptionPeriod` (`app/models/subscription_period.py`, tabla `subscription_period`)
+
+Tramo de servicio efectivamente otorgado. El más antiguo responde "¿desde cuándo es cliente?".
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| `id` | int (PK) | |
+| `user_id` | UUID (FK) | indexado |
+| `plan_id` | int (FK) \| None | |
+| `start_date` / `end_date` | datetime | al renovar una vigente, arranca donde terminaba la anterior (sin tramos solapados) |
+| `price` / `currency` | float / str (FK) | copiados del plan |
+| `origin` | str | `activate` \| `renew` \| **`backfill`** |
+| `note` | str \| None | |
+| `created_by` | UUID (FK) \| None | el admin que lo otorgó |
+
+> `origin="backfill"` marca los períodos **reconstruidos** por la migración a partir de la suscripción vigente: son una deducción del estado actual, no historia registrada. La UI los rotula «reconstruido». Lo anterior al 2026-09-01 no existe en ninguna parte.
+
+### `SubscriptionEvent` (`app/models/subscription_event.py`, tabla `subscription_event`)
+
+Bitácora **inmutable**: nada la actualiza ni la borra, solo se inserta. Registra también acciones que no crean período (eliminar una suscripción, registrar o borrar un pago).
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| `id` | int (PK) | |
+| `user_id` | UUID (FK) | indexado |
+| `action` | str | `activate` \| `renew` \| `delete` \| `payment`; indexado |
+| `end_date_before` / `end_date_after` | datetime \| None | permite reconstruir la línea de tiempo aunque no haya período |
+| `months`, `plan_id`, `detail` | | |
+| `performed_by` | UUID (FK) \| None | quién ejecutó la acción |
+| `created_at` | datetime | indexado |
+
+### `Payment` (`app/models/payment.py`, tabla `payment`)
+
+Contabilidad **del negocio**, no de las finanzas del usuario: no aparece en Resumen ni toca ninguna cuenta ni saldo. Va en tabla propia para que nunca se mezcle con `Transaction`.
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| `id` | int (PK) | |
+| `user_id` | UUID (FK) | indexado |
+| `period_id` | int (FK) \| None | período que cubrió |
+| `amount` / `currency` | float / str (FK) | ⚠️ `total_paid` en la ficha **suma sin convertir monedas** |
+| `method` | str | `cash` \| `transfer` \| `card` \| `other`; texto libre a propósito |
+| `reference`, `note` | str \| None | |
+| `paid_at`, `created_by`, `created_at` | | |
+
+### `UserAdminProfile`, `UserTag`, `UserTagLink` (`app/models/user_admin_profile.py`)
+
+Datos que el **admin** lleva sobre una persona; el usuario no los ve ni los edita. En tabla aparte para no engordar `user`, que se lee en cada request autenticado.
+
+| Tabla | Campos | Notas |
+|---|---|---|
+| `user_admin_profile` | `user_id` (PK/FK), `full_name`, `phone`, `notes`, `updated_by`, `updated_at` | notas privadas |
+| `user_tag` | `id`, `name` (único), `color`, `created_at` | catálogo de etiquetas |
+| `user_tag_link` | `user_id` + `tag_id` (PK compuesta) | N a N |
 
 ## Enums (`app/models/enums.py`)
 
