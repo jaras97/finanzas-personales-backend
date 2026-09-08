@@ -9,9 +9,13 @@ from sqlmodel import Session, select, func
 from app.database import engine
 from app.models.category import Category, CategoryType
 from app.models.transaction import Transaction
-from app.schemas.category import CategoryCreate, CategoryRead, SuggestedCategoriesResult
-from app.utils.category_helpers import sembrar_categorias_sugeridas
-from app.utils.default_categories import DEFAULT_CATEGORIES
+from app.schemas.category import (
+    CategoryCreate, CategoryRead,
+    TaxonomyRead, TaxonomyBlock, TaxonomyItem, TaxonomyApply, TaxonomyApplyResult,
+)
+from app.utils.default_categories import (
+    DEFAULT_CATEGORIES, DEFAULT_SUBCATEGORIES, BLOCK_LABELS, _slug,
+)
 from app.core.security import get_current_user_with_subscription_check
 
 def _validar_padre(
@@ -175,6 +179,223 @@ def list_categories(
         return salida
 
 
+# ===========================================================================
+# Selector de taxonomía
+# ===========================================================================
+# Reemplaza al antiguo POST /categories/suggested, que creaba 12 categorías de
+# un clic sin avisar ni mostrar qué iba a pasar. Acá el usuario ve el catálogo
+# completo con lo que ya tiene marcado, ajusta a su gusto, y nada se escribe
+# hasta que envía la selección.
+
+def _indice_del_usuario(session: Session, user_id: UUID) -> dict:
+    """Mapa {(slug_padre, slug_nombre): Category} de todo lo que tiene.
+
+    La clave se normaliza (sin tildes ni mayúsculas) porque en producción ya
+    conviven "Alimentacion" y "Alimentación": sin eso el selector le ofrecería
+    a esa gente crear de nuevo lo que ya tiene.
+    """
+    categorias = session.exec(
+        select(Category).where(Category.user_id == user_id)
+    ).all()
+    por_id = {c.id: c for c in categorias}
+
+    indice = {}
+    for c in categorias:
+        padre = por_id.get(c.parent_id) if c.parent_id else None
+        indice[(_slug(padre.name) if padre else None, _slug(c.name))] = c
+    return indice
+
+
+def _conteo_transacciones(session: Session, user_id: UUID) -> dict:
+    """Transacciones por categoría, en UNA consulta."""
+    filas = session.exec(
+        select(Transaction.category_id, func.count(Transaction.id))
+        .where(Transaction.user_id == user_id)
+        .group_by(Transaction.category_id)
+    ).all()
+    return {cat_id: n for cat_id, n in filas if cat_id is not None}
+
+
+def _construir_item(entrada, categoria, n_tx: int) -> TaxonomyItem:
+    if categoria is None:
+        estado = "absent"
+    elif categoria.is_active:
+        estado = "present"
+    else:
+        estado = "inactive"
+
+    bloqueada = bool(categoria and categoria.is_active and n_tx > 0)
+    return TaxonomyItem(
+        key=entrada.key,
+        name=entrada.name,
+        type=entrada.type,
+        color=entrada.color or None,
+        icon=entrada.icon or None,
+        core=entrada.core,
+        state=estado,
+        category_id=categoria.id if categoria else None,
+        transactions=n_tx,
+        locked=bloqueada,
+        locked_reason=(
+            f"Tiene {n_tx} {'movimiento' if n_tx == 1 else 'movimientos'}: quitarla dejaría huecos en tus reportes."
+            if bloqueada else None
+        ),
+    )
+
+
+@router.get("/taxonomy", response_model=TaxonomyRead)
+def get_taxonomy(
+    user_id: UUID = Depends(get_current_user_with_subscription_check),
+):
+    """Catálogo completo con el estado de cada entrada en esta cuenta."""
+    with Session(engine) as session:
+        indice = _indice_del_usuario(session, user_id)
+        conteos = _conteo_transacciones(session, user_id)
+
+        hijas_por_padre = {}
+        for e in DEFAULT_SUBCATEGORIES:
+            hijas_por_padre.setdefault(e.parent, []).append(e)
+
+        bloques = []
+        for block_id, label in BLOCK_LABELS:
+            items = []
+            for padre in DEFAULT_CATEGORIES:
+                if padre.block != block_id:
+                    continue
+                cat_padre = indice.get((None, _slug(padre.name)))
+                item = _construir_item(
+                    padre, cat_padre, conteos.get(cat_padre.id, 0) if cat_padre else 0
+                )
+                for hija in hijas_por_padre.get(padre.name, []):
+                    cat_hija = indice.get((_slug(padre.name), _slug(hija.name)))
+                    item.children.append(
+                        _construir_item(
+                            hija, cat_hija, conteos.get(cat_hija.id, 0) if cat_hija else 0
+                        )
+                    )
+                items.append(item)
+            if items:
+                bloques.append(TaxonomyBlock(id=block_id, label=label, items=items))
+
+        return TaxonomyRead(blocks=bloques)
+
+
+@router.put("/taxonomy", response_model=TaxonomyApplyResult)
+def apply_taxonomy(
+    payload: TaxonomyApply,
+    user_id: UUID = Depends(get_current_user_with_subscription_check),
+):
+    """Deja activas exactamente las entradas seleccionadas.
+
+    Un solo commit: o se aplica el diff completo o no se aplica nada. Sin eso,
+    un fallo a mitad dejaría al usuario con la mitad de sus categorías creadas
+    y sin forma de saber cuáles.
+
+    Solo toca entradas de la taxonomía. Las categorías propias del usuario
+    ("Lotes mutata don Gildardo") y las de sistema no aparecen acá y no se
+    ven afectadas por lo que se envíe.
+    """
+    seleccionadas = set(payload.selected)
+
+    with Session(engine) as session:
+        indice = _indice_del_usuario(session, user_id)
+        conteos = _conteo_transacciones(session, user_id)
+
+        creadas = reactivadas = desactivadas = 0
+        omitidas: list[str] = []
+
+        def _buscar(entrada):
+            clave = (_slug(entrada.parent) if entrada.parent else None, _slug(entrada.name))
+            return indice.get(clave)
+
+        # 1) Altas y reactivaciones. Los padres primero: una hija necesita el
+        #    id de su padre, que puede estar creándose en esta misma pasada.
+        creados_ahora: dict[str, Category] = {}
+        for entrada in DEFAULT_CATEGORIES + DEFAULT_SUBCATEGORIES:
+            if entrada.key not in seleccionadas:
+                continue
+            existente = _buscar(entrada)
+            if existente is None:
+                parent_id = None
+                if entrada.parent:
+                    padre = creados_ahora.get(entrada.parent) or indice.get(
+                        (None, _slug(entrada.parent))
+                    )
+                    if padre is None or not padre.is_active:
+                        # Sin padre activo la hija no tiene dónde colgarse.
+                        omitidas.append(
+                            f"{entrada.name}: requiere que «{entrada.parent}» esté seleccionada."
+                        )
+                        continue
+                    parent_id = padre.id
+                nueva = Category(
+                    name=entrada.name,
+                    type=entrada.type,
+                    user_id=user_id,
+                    color=entrada.color or None,
+                    icon=entrada.icon or None,
+                    parent_id=parent_id,
+                    is_system=False,
+                )
+                session.add(nueva)
+                session.flush()  # necesitamos su id para las hijas de esta misma pasada
+                creados_ahora[entrada.name] = nueva
+                creadas += 1
+            elif not existente.is_active:
+                existente.is_active = True
+                session.add(existente)
+                creados_ahora[entrada.name] = existente
+                reactivadas += 1
+            else:
+                creados_ahora[entrada.name] = existente
+
+        # 2) Bajas. Las hijas antes que los padres: desactivar un padre con
+        #    hijas activas está prohibido, y con razón.
+        for entrada in DEFAULT_SUBCATEGORIES + DEFAULT_CATEGORIES:
+            if entrada.key in seleccionadas:
+                continue
+            existente = _buscar(entrada)
+            if existente is None or not existente.is_active or existente.is_system:
+                continue
+
+            n_tx = conteos.get(existente.id, 0)
+            if n_tx > 0:
+                omitidas.append(
+                    f"{entrada.name}: tiene {n_tx} {'movimiento' if n_tx == 1 else 'movimientos'}."
+                )
+                continue
+
+            hijas_vivas = session.exec(
+                select(Category).where(
+                    Category.parent_id == existente.id,
+                    Category.is_active == True,  # noqa: E712
+                )
+            ).all()
+            if hijas_vivas:
+                omitidas.append(
+                    f"{entrada.name}: aún tiene subcategorías activas."
+                )
+                continue
+
+            existente.is_active = False
+            session.add(existente)
+            desactivadas += 1
+
+        session.commit()
+
+        return TaxonomyApplyResult(
+            created=creadas,
+            reactivated=reactivadas,
+            deactivated=desactivadas,
+            skipped=omitidas,
+        )
+
+
+# NOTA DE ORDEN: los endpoints de /taxonomy tienen que declararse ANTES que
+# cualquier ruta `/{category_id}`. FastAPI resuelve por orden de declaración,
+# así que con PUT /{category_id} arriba, un PUT a /categories/taxonomy se
+# interpreta como "category_id = taxonomy" y muere en un 422. Es exactamente
+# lo que dejó inalcanzable a /subscriptions/admin/me durante meses.
 @router.put("/{category_id}", response_model=CategoryRead)
 def update_category(
     category_id: int,
@@ -334,31 +555,8 @@ def reactivate_category(
         session.refresh(category)
         return category
 
-
-@router.post("/suggested", response_model=SuggestedCategoriesResult, status_code=201)
-def add_suggested_categories(
-    user_id: UUID = Depends(get_current_user_with_subscription_check),
-):
-    """Añade las categorías de la taxonomía sugerida que al usuario le falten.
-
-    Opt-in a propósito, y solo aditivo: no renombra, no fusiona y no desactiva
-    nada. A alguien que ya curó 29 categorías propias, inyectarle 25 genéricas
-    de golpe le haría daño; que lo pida quien lo quiera.
-
-    La comparación ignora tildes y mayúsculas, porque en producción ya conviven
-    "Alimentacion", "Alimentación" y "Alimentación y mercados": sin eso, esto
-    crearía duplicados de lo que la persona ya tiene.
-
-    Ofrece las 25 completas (no solo el núcleo): quien pulsa el botón está
-    pidiendo explícitamente el catálogo, no un arranque mínimo.
-    """
-    with Session(engine) as session:
-        creadas = sembrar_categorias_sugeridas(user_id, session, solo_nucleo=False)
-        session.commit()
-        for c in creadas:
-            session.refresh(c)
-
-        return SuggestedCategoriesResult(
-            created=[CategoryRead.model_validate(c) for c in creadas],
-            skipped_existing=len(DEFAULT_CATEGORIES) - len(creadas),
-        )
+# El antiguo POST /categories/suggested se eliminó el 2026-09-08. Creaba doce
+# categorías de un solo clic, sin avisar ni mostrar qué iba a pasar: reversible
+# (baja lógica) pero a doce clics, y sobre todo decidía por el usuario. Lo
+# reemplaza el selector de /categories/taxonomy, donde se ve el efecto exacto
+# antes de escribir nada.

@@ -80,11 +80,16 @@ Atada 1:1 a una `SavingAccount` completa — "esta cuenta ES mi fondo para el vi
 
 **`monthly_savings_needed`**: `(target_amount − saldo_actual) / meses_restantes` hasta `target_date`. Si el saldo ya alcanzó o superó la meta, es `0`. Si `target_date` cae en el mes en curso (o ya pasó), es todo lo que falta de una vez — ya no hay margen para repartirlo entre meses.
 
-### Categorías sugeridas
+### Selector de taxonomía
 
 | Método | Ruta | Descripción |
 |---|---|---|
-| POST | `/categories/suggested` | Añade las categorías de la taxonomía que al usuario le **falten** → `{created: [...], skipped_existing: n}`. Solo aditivo: nunca renombra, fusiona ni desactiva nada. Compara ignorando tildes y mayúsculas (en producción conviven «Alimentacion» y «Alimentación»). Ofrece las 25 completas, no solo el núcleo: quien lo pulsa pide el catálogo. |
+| GET | `/categories/taxonomy` | Catálogo completo (25 padres + 69 subcategorías) agrupado en los 5 bloques del PDF, con el estado de cada entrada **en esta cuenta**: `state` (`present`/`inactive`/`absent`), `category_id`, `transactions`, `locked` y `locked_reason`. El estado viaja con el catálogo para que el selector se pinte precargado en una sola petición. |
+| PUT | `/categories/taxonomy` | Body `{selected: [claves]}` = conjunto **completo** que debe quedar activo (un estado deseado, no una lista de acciones). El backend calcula el diff → `{created, reactivated, deactivated, skipped}`. **Un solo commit.** Nunca desactiva una categoría con movimientos ni las propias del usuario ni las de sistema; lo que no pudo quitar vuelve en `skipped` con el motivo, sin fallar la petición entera. |
+
+> **Orden de declaración.** Estas rutas se declaran **antes** que `/categories/{category_id}`. Con el orden inverso, un `PUT /categories/taxonomy` se interpreta como `category_id = "taxonomy"` y muere en un 422 — es lo mismo que dejó inalcanzable a `/subscriptions/admin/me`. Cubierto por un test.
+>
+> El antiguo `POST /categories/suggested` se **eliminó** el 2026-09-08: creaba doce categorías de un clic sin mostrar qué iba a pasar.
 
 `POST`/`PUT /categories` aceptan además `color` (clave de paleta, 422 si no está en la lista), `icon` y `parent_id`. El color y el icono se pueden cambiar incluso en categorías de sistema: son presentación, no comportamiento. `parent_id` no, porque los flujos que las buscan por `system_key` las esperan en el primer nivel.
 

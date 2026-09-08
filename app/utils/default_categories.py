@@ -28,9 +28,16 @@ tono que funcione en tema claro y oscuro. Un hex fijo se vería mal en uno de
 los dos.
 """
 
-from typing import List, NamedTuple
+import re
+import unicodedata
+from typing import List, NamedTuple, Optional
 
 from app.models.category import CategoryType
+
+
+def _slug(nombre: str) -> str:
+    base = unicodedata.normalize("NFKD", nombre.lower()).encode("ascii", "ignore").decode()
+    return re.sub(r"[^a-z0-9]+", "-", base).strip("-")
 
 
 class DefaultCategory(NamedTuple):
@@ -40,6 +47,19 @@ class DefaultCategory(NamedTuple):
     icon: str
     core: bool
     block: str
+    # Nombre del padre dentro de esta misma taxonomía. None = primer nivel.
+    parent: Optional[str] = None
+
+    @property
+    def key(self) -> str:
+        """Identificador estable para el selector.
+
+        Se deriva del nombre normalizado, no de un id de base de datos: el
+        frontend necesita poder marcar "Vivienda" antes de que exista ninguna
+        fila, y el backend tiene que reconocerla después por el mismo nombre.
+        """
+        base = _slug(self.name)
+        return f"{_slug(self.parent)}/{base}" if self.parent else base
 
 
 # Claves de paleta admitidas. El frontend (lib/categoryStyle.ts) mapea cada una
@@ -89,4 +109,89 @@ DEFAULT_CATEGORIES: List[DefaultCategory] = [
     DefaultCategory("Rentas", I, "violet", "Building2", False, "ingresos"),
 ]
 
+# ---------------------------------------------------------------------------
+# Segundo nivel
+# ---------------------------------------------------------------------------
+# Salen de los "Ejemplos" que el PDF lista bajo cada categoría. Ahí eran
+# ilustraciones; acá se convierten en subcategorías opcionales que el usuario
+# elige una por una en el selector.
+#
+# NINGUNA se siembra automáticamente: son 70 y sembrarlas convertiría la lista
+# de categorías en el muro que la jerarquía venía a evitar. Existen para quien
+# quiera ese detalle y lo pida marcándolas.
+#
+# Se evitan nombres de marca ("Netflix", "Spotify"): envejecen mal y no son
+# categorías, son proveedores. El color y el tipo se heredan del padre.
+SUBCATEGORIAS: dict[str, List[str]] = {
+    "Vivienda": ["Arriendo", "Hipoteca", "Administración", "Mantenimiento del hogar"],
+    "Servicios públicos": ["Energía", "Agua", "Gas", "Internet", "Telefonía"],
+    "Alimentación y mercados": ["Mercado", "Artículos de aseo"],
+    "Transporte": ["Gasolina", "Transporte público", "Peajes", "Seguros y trámites", "Mantenimiento del vehículo"],
+    "Salud y bienestar": ["Medicamentos", "Citas médicas", "Seguro médico"],
+    "Educación y capacitación": ["Matrículas y mensualidades", "Cursos y certificaciones", "Libros y materiales"],
+    "Mascotas": ["Alimento", "Veterinario", "Accesorios y guardería"],
+
+    "Comida fuera y domicilios": ["Restaurantes", "Domicilios", "Café y snacks"],
+    "Entretenimiento y ocio": ["Cine y eventos", "Salidas", "Parques y planes"],
+    "Suscripciones digitales": ["Streaming", "Almacenamiento en la nube", "Licencias y apps"],
+    "Compras personales": ["Tecnología", "Hogar y decoración", "Hobbies"],
+    "Ropa y cuidado personal": ["Vestuario y calzado", "Peluquería y estética", "Gimnasio"],
+    "Viajes y vacaciones": ["Tiquetes", "Hospedaje", "Tours y actividades"],
+
+    "Deudas y créditos": ["Tarjeta de crédito", "Préstamos"],
+    "Ahorro": ["Fondo de emergencia", "Metas de ahorro"],
+    "Inversiones": ["Portafolio", "Finca raíz"],
+
+    "Imprevistos": ["Reparaciones", "Emergencias médicas"],
+    "Regalos y fechas especiales": ["Cumpleaños", "Navidad y fin de año"],
+    "Impuestos y trámites": ["Renta", "Vehículo", "Predial"],
+
+    "Salario": ["Nómina", "Primas y bonificaciones"],
+    "Trabajo independiente": ["Honorarios", "Asesorías"],
+    "Negocios y ventas": ["Ventas", "Comisiones"],
+    "Plataformas y servicios": ["Domicilios y entregas", "Transporte de pasajeros"],
+    "Rentas": ["Arriendos cobrados", "Dividendos y rendimientos"],
+    "Otros ingresos": ["Reembolsos", "Premios y subsidios", "Venta de usados"],
+}
+
+
+def _expandir_subcategorias() -> List[DefaultCategory]:
+    """Construye el segundo nivel heredando tipo, color y bloque del padre.
+
+    Se genera en vez de escribirse a mano para que un cambio de color o de
+    bloque en el padre no deje a sus hijas desalineadas.
+    """
+    por_nombre = {c.name: c for c in DEFAULT_CATEGORIES}
+    salida: List[DefaultCategory] = []
+    for nombre_padre, hijas in SUBCATEGORIAS.items():
+        padre = por_nombre[nombre_padre]  # KeyError a propósito si se renombra un padre
+        for hija in hijas:
+            salida.append(
+                DefaultCategory(
+                    name=hija,
+                    type=padre.type,
+                    color=padre.color,
+                    icon="",  # heredan el icono del padre en la interfaz
+                    core=False,  # nunca se siembran solas
+                    block=padre.block,
+                    parent=nombre_padre,
+                )
+            )
+    return salida
+
+
+DEFAULT_SUBCATEGORIES: List[DefaultCategory] = _expandir_subcategorias()
+
+# Taxonomía completa, padres y luego sus hijas.
+FULL_TAXONOMY: List[DefaultCategory] = DEFAULT_CATEGORIES + DEFAULT_SUBCATEGORIES
+
 CORE_CATEGORIES = [c for c in DEFAULT_CATEGORIES if c.core]
+
+# Etiquetas de los bloques, en el orden del PDF.
+BLOCK_LABELS: List[tuple[str, str]] = [
+    ("fijos", "Gastos fijos y necesidades básicas"),
+    ("variables", "Gastos variables y estilo de vida"),
+    ("metas", "Metas, ahorro e inversión"),
+    ("ocasionales", "Gastos ocasionales e imprevistos"),
+    ("ingresos", "Ingresos"),
+]
