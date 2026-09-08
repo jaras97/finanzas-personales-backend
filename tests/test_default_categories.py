@@ -68,59 +68,10 @@ class TestSiembraAlRegistrarse:
         assert res.json()["color"] == "teal"
 
 
-class TestAnadirSugeridas:
-    def test_completa_las_que_faltan_sin_duplicar_las_que_hay(self, client, auth):
-        antes = _categorias(client, auth)
-
-        res = client.post("/categories/suggested", headers=auth)
-
-        assert res.status_code == 201, res.text
-        data = res.json()
-        # El usuario ya tenía el núcleo sembrado al registrarse
-        assert data["skipped_existing"] == len(CORE_CATEGORIES)
-        assert len(data["created"]) == len(DEFAULT_CATEGORIES) - len(CORE_CATEGORIES)
-
-        despues = _categorias(client, auth)
-        assert len(despues) == len(antes) + len(data["created"])
-        # Ningún nombre repetido
-        nombres = [c["name"].lower() for c in despues]
-        assert len(nombres) == len(set(nombres))
-
-    def test_llamarlo_dos_veces_no_crea_nada_la_segunda(self, client, auth):
-        client.post("/categories/suggested", headers=auth)
-        total = len(_categorias(client, auth))
-
-        res = client.post("/categories/suggested", headers=auth)
-
-        assert res.json()["created"] == []
-        assert len(_categorias(client, auth)) == total
-
-    def test_respeta_los_nombres_del_usuario_ignorando_tildes(self, client, auth):
-        """En producción conviven "Alimentacion" y "Alimentación": sin
-        normalizar, esto le crearía un duplicado a quien ya la tiene."""
-        # Borro la sembrada y creo la variante sin tilde, como la escribió un
-        # usuario real
-        cats = _categorias(client, auth)
-        sembrada = next(c for c in cats if c["name"] == "Alimentación y mercados")
-        client.delete(f"/categories/{sembrada['id']}", headers=auth)
-        client.post("/categories", json={"name": "Alimentacion y Mercados", "type": "expense"}, headers=auth)
-
-        client.post("/categories/suggested", headers=auth)
-
-        finales = [c["name"] for c in _categorias(client, auth)]
-        assert "Alimentacion y Mercados" in finales
-        assert "Alimentación y mercados" not in finales
-
-    def test_no_toca_las_categorias_propias_del_usuario(self, client, auth):
-        """La taxonomía nunca cubrirá "Lotes mutata don Gildardo" -- y no debe
-        intentarlo. Lo propio se queda intacto."""
-        client.post("/categories", json={"name": "Lotes mutata don Gildardo", "type": "expense"}, headers=auth)
-
-        client.post("/categories/suggested", headers=auth)
-
-        propia = [c for c in _categorias(client, auth) if c["name"] == "Lotes mutata don Gildardo"]
-        assert len(propia) == 1
-        assert propia[0]["is_system"] is False
+# La clase TestAnadirSugeridas se eliminó junto con POST /categories/suggested
+# (2026-09-08). Su comportamiento -- añadir solo lo que falta, comparando sin
+# tildes, sin tocar lo propio del usuario -- lo cubre ahora, con más casos,
+# tests/test_taxonomy_selector.py.
 
 
 class TestColor:
@@ -144,9 +95,7 @@ class TestColor:
         assert sin.json()["color"] is None
 
 
-class TestRutas:
-    def test_suggested_no_lo_captura_la_ruta_de_id(self, client, auth):
-        """`/categories/{category_id}` se declara antes; si algún día alguien
-        agrega un POST ahí, "suggested" se interpretaría como un id."""
-        res = client.post("/categories/suggested", headers=auth)
-        assert res.status_code == 201, res.text
+# TestRutas se movió a tests/test_taxonomy_selector.py junto con el endpoint
+# que protegía. El riesgo de que `/categories/{category_id}` capture una ruta
+# con nombre fijo sigue vivo y allí está cubierto.
+

@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import List, Literal, Optional
 from pydantic import BaseModel, ConfigDict, field_validator
 
 from app.models.category import CategoryType
@@ -58,3 +58,63 @@ class SuggestedCategoriesResult(BaseModel):
 
     created: List[CategoryRead]
     skipped_existing: int
+
+
+# ---------------------------------------------------------------------------
+# Selector de taxonomía
+# ---------------------------------------------------------------------------
+
+class TaxonomyItem(BaseModel):
+    """Una entrada de la taxonomía, con el estado que tiene EN ESTA cuenta.
+
+    El estado viaja junto al catálogo para que el selector pueda pintarse
+    precargado en una sola petición, sin que el frontend tenga que cruzar dos
+    listas y adivinar equivalencias de nombres.
+    """
+
+    key: str
+    name: str
+    type: CategoryType
+    color: Optional[str] = None
+    icon: Optional[str] = None
+    core: bool
+    # "present" = la tiene activa · "inactive" = la tiene desactivada
+    # (marcarla la reactiva) · "absent" = no la tiene (marcarla la crea)
+    state: Literal["present", "inactive", "absent"]
+    category_id: Optional[int] = None
+    transactions: int = 0
+    # Con movimientos no se puede desmarcar: desactivarla dejaría agujeros en
+    # los reportes. Se informa el porqué en vez de dejar la casilla gris.
+    locked: bool = False
+    locked_reason: Optional[str] = None
+    children: List["TaxonomyItem"] = []
+
+
+class TaxonomyBlock(BaseModel):
+    id: str
+    label: str
+    items: List[TaxonomyItem]
+
+
+class TaxonomyRead(BaseModel):
+    blocks: List[TaxonomyBlock]
+
+
+class TaxonomyApply(BaseModel):
+    """Conjunto COMPLETO de claves que deben quedar activas.
+
+    Es un estado deseado, no una lista de acciones: el backend calcula qué
+    crear, reactivar y desactivar comparándolo con lo que hay. Así el frontend
+    no puede pedir una transición incoherente.
+    """
+
+    selected: List[str]
+
+
+class TaxonomyApplyResult(BaseModel):
+    created: int
+    reactivated: int
+    deactivated: int
+    # Las que se pidió quitar pero no se pudo, con el motivo. Nunca se falla
+    # entero por esto: se aplica el resto y se informa.
+    skipped: List[str] = []
