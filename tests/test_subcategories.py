@@ -171,7 +171,7 @@ class TestRollup:
 
         hoy = dt.date.today()
         res = client.get(
-            f"/summary?startDate={hoy}T00:00:00Z&endDate={hoy}T23:59:59Z&tz=UTC",
+            f"/summary?start_date={hoy}&end_date={hoy}&tz=UTC",
             headers=auth,
         )
         assert res.status_code == 200, res.text
