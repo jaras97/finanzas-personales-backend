@@ -125,9 +125,13 @@ Cada fase deja el sistema **coherente y desplegable**. No hay estados intermedio
 
 ---
 
-## Fase 1 — Taxonomía y selector reestructurados
+## Fase 1 — Taxonomía y selector reestructurados ✅ (2026-09-09)
 
-*Backend + frontend. El usuario empieza a ver el modelo nuevo.*
+*Frontend, sobre todo: los puntos 1, 2 y 4 se adelantaron en la Fase 0 porque sin ellos aquélla no era desplegable.*
+
+**Lo que quedaba y se hizo:** la lista de categorías colapsa el grupo de una sola hoja (`categoryRows` en `lib/categoryTree.ts`), y cada grupo tiene un botón «+ Subcategoría» que abre el modal con el grupo ya seleccionado.
+
+**El navegador encontró un fallo de diseño que los tests no vieron.** La primera regla colapsaba *cualquier* grupo de una hoja. Resultado: el usuario creaba «Transporte › Gasolina», quedaba como hoja única, y la lista volvía a mostrar solo «Transporte» — su subcategoría recién creada desaparecía. La regla correcta es colapsar solo la hoja **sintética** (`General`, la que crea el backend), nunca una que el usuario nombró. Está en `esHojaSintetica()`, con su test.
 
 **Qué se hace**
 
