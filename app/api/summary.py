@@ -118,12 +118,19 @@ def _periodo_anterior(inicio: date, fin: date) -> tuple[date, date]:
     En cualquier otro caso, con el rango de la misma duración inmediatamente
     anterior; comparar 15 días contra un mes daría una variación falsa.
     """
-    ultimo_dia = calendar.monthrange(inicio.year, inicio.month)[1]
-    es_mes_completo = inicio.day == 1 and fin.day == ultimo_dia and inicio.month == fin.month
+    empieza_el_1 = inicio.day == 1 and inicio.month == fin.month and inicio.year == fin.year
 
-    if es_mes_completo:
-        fin_anterior = inicio - timedelta(days=1)
-        return fin_anterior.replace(day=1), fin_anterior
+    if empieza_el_1:
+        # Un mes (completo o lo que va de él) se compara contra el MISMO tramo
+        # del mes anterior. «Del 1 al 9 de septiembre» va contra «del 1 al 9 de
+        # agosto», no contra los últimos nueve días de agosto: eso último es
+        # la misma duración pero no lo que nadie quiere decir con «vs. agosto».
+        fin_anterior_mes = inicio - timedelta(days=1)
+        ini_anterior = fin_anterior_mes.replace(day=1)
+        dias_mes_anterior = calendar.monthrange(ini_anterior.year, ini_anterior.month)[1]
+        # Si el mes anterior es más corto (comparar el 31 contra febrero),
+        # se corta en su último día en vez de desbordar.
+        return ini_anterior, ini_anterior.replace(day=min(fin.day, dias_mes_anterior))
 
     dias = (fin - inicio).days + 1
     return inicio - timedelta(days=dias), inicio - timedelta(days=1)

@@ -220,3 +220,36 @@ class TestComparacion:
 
         assert hoja["previous_total"] == 0
         assert hoja["delta_percentage"] is None
+
+
+class TestRangoParcial:
+    def test_lo_que_va_del_mes_compara_contra_el_mismo_tramo(
+        self, client, auth, make_account, transporte
+    ):
+        """El rango por defecto de la app es «del 1 a hoy».
+
+        Compararlo contra los N días anteriores daría una ventana a caballo
+        entre dos meses, que no es lo que nadie quiere decir con «vs. agosto».
+        """
+        _, gasolina, _ = transporte
+        cuenta = make_account(balance=2_000_000)
+        hoy = _hoy()
+        primero = hoy.replace(day=1)
+        primero_mes_pasado = (primero - dt.timedelta(days=1)).replace(day=1)
+
+        # Mismo día del mes pasado: dentro del tramo comparable
+        _gastar(client, auth, cuenta, gasolina["id"], 80_000,
+                dt.datetime.combine(primero_mes_pasado, dt.time(12), dt.timezone.utc))
+        _gastar(client, auth, cuenta, gasolina["id"], 40_000,
+                dt.datetime.combine(primero, dt.time(12), dt.timezone.utc))
+
+        # Sin rango explícito: el endpoint usa "del 1 a hoy"
+        res = client.get("/summary?tz=UTC", headers=auth)
+        assert res.status_code == 200, res.text
+        cop = res.json()["COP"]["expense_by_category"]
+        hoja = next(
+            h for c in cop for h in c["children"] if h["category_name"] == "Gasolina"
+        )
+
+        assert hoja["previous_total"] == 80_000
+        assert hoja["delta_percentage"] == -50.0

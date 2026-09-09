@@ -192,9 +192,13 @@ Cada fase deja el sistema **coherente y desplegable**. No hay estados intermedio
 
 ---
 
-## Fase 3 — El Resumen con desglose
+## Fase 3 — El Resumen con desglose ✅ (2026-09-09)
 
-*Backend + frontend. Se puede hacer en paralelo con la Fase 2.*
+*Backend + frontend.*
+
+**El período de comparación tiene tres casos, no dos.** La primera versión solo distinguía «mes completo» de «cualquier otro rango». Pero el rango por DEFECTO de la app es «del 1 a hoy», que caía en el segundo caso y comparaba 1–9 de septiembre contra 23–31 de agosto: una ventana a caballo entre dos meses que no es lo que nadie quiere decir con «vs. agosto». Ahora cualquier rango que empiece el día 1 se compara contra el mismo tramo del mes anterior (1–9 de agosto), recortado si ese mes es más corto. Lo encontró la prueba en navegador, no los tests: el test usaba un rango explícito de mes completo y nunca tocaba el camino por defecto.
+
+**El drill-down respeta el colapso.** Un grupo cuya única hoja es la sintética no es navegable: entrar mostraría una sola rebanada llamada «General». Misma regla que la lista de categorías, para que la app no se contradiga.
 
 **Qué se hace**
 
