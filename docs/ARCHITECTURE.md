@@ -121,6 +121,8 @@ Antes de esta sesión, `saving_account.currency` ya era `varchar` en la base loc
 - **Balance inicial sin ledger**: crear una cuenta con `balance` distinto de cero no genera ninguna fila en `Transaction` — el balance inicial no queda trazado como movimiento.
 - **Drift de fechas con producción**: las 21 columnas `timestamp` de producción son *sin* zona horaria y las de local/tests son *con* zona (`create_all`). Comparar una fecha de la BD contra un `datetime` aware funciona en local y da **500 solo en producción**; ya ocurrió dos veces. Contenido por dos lados: `app/utils/datetime_helpers.as_utc()` en el código y `conftest._igualar_fechas_a_produccion` en la suite. Migrar las columnas a `timestamptz` sigue pendiente y exige revisar antes los `datetime.utcnow()` que hoy escriben naive de forma consistente.
 
+> **El modelo de categorías va a cambiar.** Se decidió el 2026-09-08 pasar a grupo/hoja (el primer nivel deja de recibir dinero). Antes de tocar categorías, presupuestos o el resumen, leer [PLAN_CATEGORIAS_V2.md](PLAN_CATEGORIAS_V2.md): varias cosas de este archivo quedan obsoletas al ejecutarlo.
+
 ### Resueltos (se dejan anotados porque el código todavía lleva sus cicatrices)
 
 - ~~`liabilities-summary` filtraba por un `Transaction.type == "payment"` inexistente~~ — **2026-09-02**. El resultado siempre fue correcto (la resta valía 0), pero el código parecía hacer algo: "arreglar" el filtro habría descontado los pagos dos veces sobre un saldo que `pay_debt` ya decrementa. Se eliminó la resta muerta; `tests/test_liabilities_double_discount.py` falla ante ese cambio plausible.

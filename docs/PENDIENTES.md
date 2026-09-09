@@ -148,3 +148,14 @@ La suite cubre hoy la lógica de plata y control de acceso. Lo que **no** está 
 - [x] ~~El botón «Categorías sugeridas» escribía sin avisar~~ ✅ 2026-09-08 — creaba 12 categorías de un clic sin mostrar qué iba a pasar. Reversible (baja lógica) pero a 12 clics, y sobre todo decidía por el usuario. Se **eliminó** `POST /categories/suggested` y lo reemplaza un selector: `GET /categories/taxonomy` devuelve el catálogo con el estado de cada entrada en esa cuenta (`present`/`inactive`/`absent`, más `locked` si tiene movimientos), y `PUT /categories/taxonomy` recibe el conjunto **completo** que debe quedar activo y calcula el diff en **un solo commit**. La confirmación no es un diálogo aparte: el pie del selector muestra «Crear N · Reactivar N · Quitar N» y nada se escribe hasta pulsar. 12 tests backend + 9 de frontend.
 - [x] ~~La taxonomía no tenía subcategorías~~ ✅ 2026-09-08 — **69 subcategorías** derivadas de los «Ejemplos» del PDF (Vivienda › Arriendo, Transporte › Gasolina…), heredando tipo, color y bloque del padre. **Ninguna se siembra**: llegan colapsadas y desmarcadas, porque 94 casillas premarcadas serían el mismo muro que la jerarquía venía a evitar. Se evitaron nombres de marca («Netflix», «Spotify»): envejecen mal y son proveedores, no categorías.
 - [ ] **Trampa de entorno local:** el mismo contenedor de Postgres (puerto 5433) sirve `finances_db` (desarrollo) y `finances_test` (la suite). Correr `pytest` con el servidor de desarrollo activo produce errores `sqlalchemy` intermitentes **en archivos sin relación con lo que se está tocando**, y parecen bugs del código. Ocurrió el 2026-09-08. Mientras no se separen, no correr la suite y el dev server a la vez.
+
+## Categorías v2 — plan en fases (2026-09-08)
+
+Se decidió pasar al modelo **grupo / hoja**: el primer nivel nunca recibe dinero, las transacciones y presupuestos van siempre a una hoja. Motivo: hay importación bancaria y presupuestos robustos en el roadmap, y ambos exigen hojas estrictas.
+
+**El plan completo, con invariantes, fases, migración y decisiones de experiencia, está en [PLAN_CATEGORIAS_V2.md](PLAN_CATEGORIAS_V2.md).** Los pendientes de abajo quedan absorbidos por él:
+
+- [ ] **Bug: doble conteo en presupuestos.** Presupuestar un padre y una hija cuenta los mismos pesos dos veces — `_calc_spent` suma las hijas y nada impide presupuestar ambos. Introducido el 2026-09-04 con las subcategorías. Lo cierra la invariante I2 (Fase 0).
+- [ ] El selector de categoría en transacciones no escala a 94 entradas (`Select` plano). Fase 2 del plan.
+- [ ] `/summary` aplasta todo al grupo y no expone el desglose por hoja. Fase 3.
+- [ ] Las transacciones sin categorizar no aparecen en el Resumen. Fase 3 (fila visible) + Fase 4 (flujo para resolverlas).
