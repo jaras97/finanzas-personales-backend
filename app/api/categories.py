@@ -17,6 +17,9 @@ from app.utils.default_categories import (
     DEFAULT_CATEGORIES, DEFAULT_SUBCATEGORIES, BLOCK_LABELS, _slug,
 )
 from app.core.security import get_current_user_with_subscription_check
+from app.utils.category_rules import (
+    crear_hoja_por_defecto, hojas_de, tiene_referencias, NOMBRE_HOJA_POR_DEFECTO,
+)
 
 def _validar_padre(
     session: Session,
@@ -82,11 +85,20 @@ def _validar_padre(
 
 
 def _con_padre(session: Session, categoria: Category) -> dict:
-    """Serializa una categoría añadiendo el nombre del padre."""
+    """Serializa una categoría con el nombre del padre y su naturaleza.
+
+    `is_group` y `default_leaf_id` viajan también acá (no solo en el listado)
+    para que quien acaba de crear una categoría sepa de inmediato dónde puede
+    registrar movimientos, sin tener que volver a pedir la lista.
+    """
     datos = CategoryRead.model_validate(categoria).model_dump()
+    datos["is_group"] = categoria.parent_id is None
     if categoria.parent_id:
         padre = session.get(Category, categoria.parent_id)
         datos["parent_name"] = padre.name if padre else None
+    else:
+        hijas = hojas_de(session, categoria.id)
+        datos["default_leaf_id"] = hijas[0].id if len(hijas) == 1 else None
     return datos
 
 
@@ -131,6 +143,24 @@ def create_category(
             system_key=None,   # 👈 sin clave de sistema
         )
         session.add(category)
+        session.flush()
+
+        if category.parent_id is None:
+            # Nace como grupo, y un grupo sin hojas no sirve para nada (I3):
+            # se le crea "General". La interfaz colapsa los grupos de una sola
+            # hoja, así que quien solo quería "Mascotas" ve una línea.
+            crear_hoja_por_defecto(session, category)
+        else:
+            # Al agregar una hoja de verdad, la "General" que nadie usó sobra:
+            # dejarla convertiría cada grupo en "General + lo que importa".
+            for hermana in hojas_de(session, category.parent_id):
+                if (
+                    hermana.id != category.id
+                    and hermana.name == NOMBRE_HOJA_POR_DEFECTO
+                    and not tiene_referencias(session, hermana.id)
+                ):
+                    session.delete(hermana)
+
         session.commit()
         session.refresh(category)
         return _con_padre(session, category)
@@ -167,10 +197,23 @@ def list_categories(
                 select(Category).where(Category.user_id == user_id)
             ).all()
         }
+        # Hojas por grupo, en una consulta, para poder resolver default_leaf_id
+        # sin una query por fila.
+        todas = session.exec(select(Category).where(Category.user_id == user_id)).all()
+        hijas_por_grupo: dict[int, list[Category]] = {}
+        for c in todas:
+            if c.parent_id and c.is_active:
+                hijas_por_grupo.setdefault(c.parent_id, []).append(c)
+
         salida = []
         for c in categories:
             datos = CategoryRead.model_validate(c).model_dump()
             datos["parent_name"] = nombres.get(c.parent_id) if c.parent_id else None
+            datos["is_group"] = c.parent_id is None
+            hijas = hijas_por_grupo.get(c.id, [])
+            # Solo tiene sentido cuando hay UNA hoja: con varias, quién recibe
+            # el movimiento es una decisión del usuario, no un valor por defecto.
+            datos["default_leaf_id"] = hijas[0].id if len(hijas) == 1 else None
             salida.append(datos)
 
         # Padres antes que hijas, y cada hija junto a su padre: así cualquier
@@ -263,9 +306,15 @@ def get_taxonomy(
                 if padre.block != block_id:
                     continue
                 cat_padre = indice.get((None, _slug(padre.name)))
-                item = _construir_item(
-                    padre, cat_padre, conteos.get(cat_padre.id, 0) if cat_padre else 0
+                # Un grupo no tiene movimientos propios (I1): los suyos son los
+                # de sus hojas. Sin esto el selector dejaría desmarcar un grupo
+                # que en realidad no se puede quitar, y el usuario solo se
+                # enteraría al pulsar Aplicar.
+                tx_padre = (
+                    sum(conteos.get(h.id, 0) for h in hojas_de(session, cat_padre.id))
+                    if cat_padre else 0
                 )
+                item = _construir_item(padre, cat_padre, tx_padre)
                 for hija in hijas_por_padre.get(padre.name, []):
                     cat_hija = indice.get((_slug(padre.name), _slug(hija.name)))
                     item.children.append(
@@ -339,6 +388,10 @@ def apply_taxonomy(
                 )
                 session.add(nueva)
                 session.flush()  # necesitamos su id para las hijas de esta misma pasada
+                if parent_id is None:
+                    # Nace como grupo; sin una hoja no recibiría nada (I3).
+                    crear_hoja_por_defecto(session, nueva)
+                    session.flush()
                 creados_ahora[entrada.name] = nueva
                 creadas += 1
             elif not existente.is_active:
@@ -349,8 +402,22 @@ def apply_taxonomy(
             else:
                 creados_ahora[entrada.name] = existente
 
-        # 2) Bajas. Las hijas antes que los padres: desactivar un padre con
-        #    hijas activas está prohibido, y con razón.
+        # 1b) Las hojas de verdad hacen sobrar la "General" que nadie tocó.
+        for entrada in DEFAULT_CATEGORIES:
+            if entrada.key not in seleccionadas:
+                continue
+            grupo = creados_ahora.get(entrada.name) or indice.get((None, _slug(entrada.name)))
+            if not grupo:
+                continue
+            hojas = hojas_de(session, grupo.id)
+            if len(hojas) > 1:
+                for h in hojas:
+                    if h.name == NOMBRE_HOJA_POR_DEFECTO and not tiene_referencias(session, h.id):
+                        session.delete(h)
+        session.flush()
+
+        # 2) Bajas. Las hojas antes que los padres: al quitar un grupo se
+        #    arrastran sus hojas, que es lo que el usuario quiere decir.
         for entrada in DEFAULT_SUBCATEGORIES + DEFAULT_CATEGORIES:
             if entrada.key in seleccionadas:
                 continue
@@ -365,17 +432,18 @@ def apply_taxonomy(
                 )
                 continue
 
-            hijas_vivas = session.exec(
-                select(Category).where(
-                    Category.parent_id == existente.id,
-                    Category.is_active == True,  # noqa: E712
-                )
-            ).all()
-            if hijas_vivas:
+            # Quitar un grupo arrastra a sus hojas: para el usuario es UNA
+            # categoría, no un árbol que tenga que desmontar a mano.
+            hijas_vivas = hojas_de(session, existente.id)
+            con_movimientos = [h for h in hijas_vivas if conteos.get(h.id, 0) > 0]
+            if con_movimientos:
                 omitidas.append(
-                    f"{entrada.name}: aún tiene subcategorías activas."
+                    f"{entrada.name}: {con_movimientos[0].name} tiene movimientos."
                 )
                 continue
+            for h in hijas_vivas:
+                h.is_active = False
+                session.add(h)
 
             existente.is_active = False
             session.add(existente)
@@ -452,11 +520,23 @@ def update_category(
         # siempre en el primer nivel: colgarlas de otra rompería los flujos que
         # las buscan por system_key.
         if not category.is_system:
+            # Una hoja no puede subir a primer nivel: se convertiría en un grupo
+            # sin hojas, que es exactamente lo que I3 prohíbe. Moverla a otro
+            # grupo sí se permite.
+            if category.parent_id is not None and category_data.parent_id is None:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"«{category.name}» es una subcategoría y necesita un grupo. "
+                        "Muévela a otro grupo, o crea una categoría nueva."
+                    ),
+                )
             _validar_padre(
                 session, user_id, category_data.parent_id, category.type,
                 hija_id=category.id,
             )
-            category.parent_id = category_data.parent_id
+            if category_data.parent_id is not None:
+                category.parent_id = category_data.parent_id
 
         session.add(category)
         session.commit()
@@ -504,24 +584,38 @@ def delete_category(
             )
 
         # Soft delete
-        # Desactivar un padre dejaría a sus hijas colgando de algo invisible:
-        # seguirían apareciendo en los selectores pero sin su contexto. Se
-        # bloquea en vez de cascada para que la acción sea reversible.
-        hijas_activas = session.exec(
-            select(Category).where(
-                Category.parent_id == category.id,
-                Category.is_active == True,  # noqa: E712
-            )
-        ).all()
-        if hijas_activas:
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    f"«{category.name}» tiene {len(hijas_activas)} "
-                    f"{'subcategoría activa' if len(hijas_activas) == 1 else 'subcategorías activas'}. "
-                    "Desactívalas primero o muévelas a otra categoría."
-                ),
-            )
+        if category.parent_id is None:
+            # Retirar un GRUPO retira la categoría entera, así que arrastra a
+            # sus hojas. Antes esto se bloqueaba, pero con el modelo grupo/hoja
+            # obligaría al usuario a desactivar hoja por hoja algo que él
+            # entiende como una sola categoría.
+            hijas = hojas_de(session, category.id)
+            con_movimientos = [h for h in hijas if tiene_referencias(session, h.id)]
+            if con_movimientos:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"«{category.name}» no se puede quitar: "
+                        f"{con_movimientos[0].name} tiene movimientos asociados."
+                    ),
+                )
+            for h in hijas:
+                h.is_active = False
+                session.add(h)
+        else:
+            # Quitar la ÚLTIMA hoja dejaría un grupo inservible (I3). Se pide
+            # retirar el grupo entero, que es lo que el usuario quiere decir.
+            hermanas = [h for h in hojas_de(session, category.parent_id) if h.id != category.id]
+            if not hermanas:
+                grupo = session.get(Category, category.parent_id)
+                if grupo and grupo.is_active:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=(
+                            f"«{category.name}» es la única subcategoría de "
+                            f"«{grupo.name}». Quita el grupo completo o crea otra antes."
+                        ),
+                    )
 
         category.is_active = False
         session.add(category)

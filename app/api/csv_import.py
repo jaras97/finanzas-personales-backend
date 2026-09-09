@@ -30,6 +30,7 @@ from app.schemas.csv_import import (
 )
 from app.utils.category_helpers import get_or_create_uncategorized_category
 from app.utils.category_rule_helpers import suggest_category
+from app.utils.category_rules import nombre_visible
 
 transactions_import_router = APIRouter(prefix="/transactions/import", tags=["csv-import"])
 import_profiles_router = APIRouter(prefix="/import-profiles", tags=["csv-import"])
@@ -204,7 +205,7 @@ async def preview_import(
                         row_index=idx,
                         description=" | ".join(row),
                         category_id=uncategorized.id,
-                        category_name=uncategorized.name,
+                        category_name=nombre_visible(session, uncategorized),
                         is_duplicate=False,
                         include=False,
                         error="Fila con menos columnas de las esperadas.",
@@ -247,9 +248,9 @@ async def preview_import(
             suggested_id = suggest_category(raw_desc, active_rules)
             suggested_category = categories_by_id.get(suggested_id) if suggested_id else None
             if suggested_category:
-                category_id, category_name = suggested_category.id, suggested_category.name
+                category_id, category_name = suggested_category.id, nombre_visible(session, suggested_category)
             else:
-                category_id, category_name = uncategorized.id, uncategorized.name
+                category_id, category_name = uncategorized.id, nombre_visible(session, uncategorized)
 
             rows.append(
                 ImportRowPreview(

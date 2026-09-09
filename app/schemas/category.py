@@ -44,6 +44,12 @@ class CategoryRead(BaseModel):
     # Denormalizado para que los selectores puedan mostrar "Padre › Hija" sin
     # cruzar la lista consigo misma en cada render.
     parent_name: Optional[str] = None
+    # Primer nivel = grupo: agrupa pero NO recibe movimientos (invariante I1).
+    # Viaja resuelto para que el frontend no tenga que deducirlo de parent_id.
+    is_group: bool = False
+    # Para un grupo de una sola hoja: su id. Es lo que hace posible que la
+    # interfaz muestre "Mascotas" como una línea y aun así sepa dónde registrar.
+    default_leaf_id: Optional[int] = None
 
     model_config = ConfigDict(from_attributes=True)
 

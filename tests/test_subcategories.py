@@ -121,23 +121,23 @@ class TestJerarquiaInvalida:
 
 
 class TestBajaDeUnPadre:
-    def test_no_deja_desactivar_un_padre_con_hijas_activas(
-        self, client, auth, transporte
-    ):
-        _crear(client, auth, "Gasolina", parent_id=transporte["id"])
+    """Con el modelo grupo/hoja esto cambió de sentido.
 
-        res = client.delete(f"/categories/{transporte['id']}", headers=auth)
+    Antes se BLOQUEABA desactivar un padre con hijas activas. Ahora quitar un
+    grupo las arrastra: para el usuario «Transporte» es una categoría, no un
+    árbol que deba desmontar a mano. Lo que sí se bloquea es quitar algo con
+    movimientos, y eso vive en test_invariantes_grupo_hoja.py (I3).
+    """
 
-        assert res.status_code == 400
-        assert "subcategoría activa" in res.json()["detail"]
-
-    def test_se_puede_desactivar_tras_quitar_las_hijas(self, client, auth, transporte):
+    def test_quitar_el_grupo_se_lleva_sus_hojas(self, client, auth, transporte):
         gasolina = _crear(client, auth, "Gasolina", parent_id=transporte["id"]).json()
-        client.delete(f"/categories/{gasolina['id']}", headers=auth)
 
         res = client.delete(f"/categories/{transporte['id']}", headers=auth)
 
         assert res.status_code == 200, res.text
+        cats = {c["id"]: c for c in client.get("/categories?status=all", headers=auth).json()}
+        assert cats[transporte["id"]]["is_active"] is False
+        assert cats[gasolina["id"]]["is_active"] is False
 
 
 class TestRollup:
@@ -161,9 +161,12 @@ class TestRollup:
         """Sin esto la jerarquía no reduce nada: el resumen mostraría 25 hojas
         en vez de las 8 categorías reconocibles que se buscaban."""
         cuenta = make_account(balance=1_000_000)
+        # Los movimientos van a HOJAS (I1): el grupo no los recibe. Lo que se
+        # comprueba es que el resumen los sume bajo el grupo.
         gasolina = _crear(client, auth, "Gasolina", parent_id=transporte["id"]).json()
+        peajes = _crear(client, auth, "Peajes", parent_id=transporte["id"]).json()
 
-        self._gastar(client, auth, cuenta, transporte["id"], 30_000)
+        self._gastar(client, auth, cuenta, peajes["id"], 30_000)
         self._gastar(client, auth, cuenta, gasolina["id"], 70_000)
 
         hoy = dt.date.today()
@@ -177,28 +180,10 @@ class TestRollup:
         transporte_row = [c for c in cop if c["category_name"] == "Transporte"]
         assert len(transporte_row) == 1, "la subcategoría debería sumarse al padre"
         assert transporte_row[0]["total"] == 100_000
-        assert not any(c["category_name"] == "Gasolina" for c in cop)
+        assert not any(c["category_name"] in ("Gasolina", "Peajes") for c in cop)
 
-    def test_el_presupuesto_del_padre_incluye_a_las_hijas(
-        self, client, auth, make_account, transporte
-    ):
-        """Ignorarlas mostraría plata disponible que ya se gastó."""
-        cuenta = make_account(balance=1_000_000)
-        gasolina = _crear(client, auth, "Gasolina", parent_id=transporte["id"]).json()
-        hoy = dt.date.today()
-        client.post(
-            "/budgets",
-            json={
-                "category_id": transporte["id"],
-                "amount": 200_000,
-                "currency": "COP",
-                "month": hoy.strftime("%Y-%m"),
-            },
-            headers=auth,
-        )
-
-        self._gastar(client, auth, cuenta, gasolina["id"], 70_000)
-
-        presupuestos = client.get(f"/budgets?month={hoy.strftime('%Y-%m')}", headers=auth).json()
-        b = next(x for x in presupuestos if x["category_id"] == transporte["id"])
-        assert b["spent"] == 70_000
+    # test_el_presupuesto_del_padre_incluye_a_las_hijas se eliminó el
+    # 2026-09-09: un grupo ya no PUEDE tener presupuesto propio (I2), su total
+    # es derivado de sus hojas. Lo cubre
+    # test_invariantes_grupo_hoja.py::TestI2::test_el_gasto_de_una_hoja_no_se_cuenta_dos_veces,
+    # que además verifica que no haya doble conteo.

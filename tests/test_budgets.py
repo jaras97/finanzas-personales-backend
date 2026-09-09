@@ -41,7 +41,7 @@ def test_create_budget_and_track_spend(client, auth, make_account, make_category
 
     _spend(client, auth, acc, cat, 150_000)
 
-    listed = client.get("/budgets", headers=auth).json()
+    listed = client.get("/budgets", headers=auth).json()["items"]
     assert len(listed) == 1
     assert listed[0]["spent"] == 150_000
     assert listed[0]["percentage"] == 30.0
@@ -57,7 +57,7 @@ def test_editing_same_month_updates_instead_of_duplicating(client, auth, make_ca
     )
     assert res.status_code == 200, res.text
 
-    listed = client.get("/budgets", headers=auth).json()
+    listed = client.get("/budgets", headers=auth).json()["items"]
     assert len(listed) == 1
     assert listed[0]["amount"] == 300_000
 
@@ -110,7 +110,7 @@ def test_pause_hides_budget_from_current_month(client, auth, make_category):
     res = client.post(f"/budgets/{created['id']}/pause", headers=auth)
     assert res.status_code == 200, res.text
 
-    listed = client.get("/budgets", headers=auth).json()
+    listed = client.get("/budgets", headers=auth).json()["items"]
     assert listed == []
 
 
@@ -134,7 +134,7 @@ def test_transfers_and_debt_payments_do_not_count_as_spend(
     )
     assert res.status_code == 200, res.text
 
-    listed = client.get("/budgets", headers=auth).json()
+    listed = client.get("/budgets", headers=auth).json()["items"]
     assert listed[0]["spent"] == 0
 
 
@@ -149,7 +149,7 @@ def test_reversed_transaction_does_not_count(client, auth, make_account, make_ca
     res = client.post(f"/transactions/{tx['id']}/reverse", json={"note": "error"}, headers=auth)
     assert res.status_code == 200, res.text
 
-    listed = client.get("/budgets", headers=auth).json()
+    listed = client.get("/budgets", headers=auth).json()["items"]
     assert listed[0]["spent"] == 0
 
 
@@ -168,6 +168,6 @@ def test_same_category_tracked_separately_per_currency(client, auth, make_accoun
     _spend(client, auth, acc_cop, cat, 100_000)
     _spend(client, auth, acc_usd, cat, 50)
 
-    listed = {b["currency"]: b for b in client.get("/budgets", headers=auth).json()}
+    listed = {b["currency"]: b for b in client.get("/budgets", headers=auth).json()["items"]}
     assert listed["COP"]["spent"] == 100_000
     assert listed["USD"]["spent"] == 50

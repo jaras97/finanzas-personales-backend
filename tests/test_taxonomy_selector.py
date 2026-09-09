@@ -108,12 +108,17 @@ class TestAplicar:
         """La propiedad de seguridad del selector."""
         cuenta = make_account(balance=1_000_000)
         items = {i["key"]: i for i in _todos_los_items(_taxonomia(client, auth))}
-        transporte = items["transporte"]["category_id"]
+        grupo_id = items["transporte"]["category_id"]
+        # El movimiento va a una HOJA: el grupo no los recibe (I1). El selector
+        # tiene que bloquear igualmente el grupo, porque quitarlo arrastraría
+        # una hoja con movimientos.
+        cats = client.get("/categories?status=all", headers=auth).json()
+        hoja = next(c for c in cats if c["parent_id"] == grupo_id and c["is_active"])
         client.post(
             "/transactions",
             json={
                 "amount": 50_000, "type": "expense", "description": "taxi",
-                "category_id": transporte, "saving_account_id": cuenta["id"],
+                "category_id": hoja["id"], "saving_account_id": cuenta["id"],
                 "date": dt.datetime.now(dt.timezone.utc).isoformat(),
             },
             headers=auth,
