@@ -244,15 +244,34 @@ def make_category(client, auth):
     """
 
     def _make(name="Categoría", type_="expense"):
+        """Devuelve la HOJA donde se registran los movimientos.
+
+        Desde el modelo grupo/hoja (2026-09-09) crear una categoría crea un
+        grupo con una hoja «General» dentro, y el grupo NO recibe movimientos.
+        Como los tests usan esto para registrar transacciones, presupuestos y
+        reglas, lo útil es la hoja. Para el grupo está `make_group`.
+        """
+        grupo = _make_group(name=name, type_=type_)
+        cats = client.get("/categories?status=all", headers=auth).json()
+        hojas = [c for c in cats if c["parent_id"] == grupo["id"] and c["is_active"]]
+        assert hojas, f"el grupo '{name}' quedó sin hojas"
+        return hojas[0]
+
+    def _make_group(name="Categoría", type_="expense"):
         res = client.post(
             "/categories", json={"name": name, "type": type_}, headers=auth
         )
-        if res.status_code == 400 and "existe" in res.text:
-            existentes = client.get("/categories", headers=auth).json()
-            ya = next((c for c in existentes if c["name"].lower() == name.lower()), None)
-            assert ya is not None, f"400 por duplicado pero no encuentro '{name}'"
+        if res.status_code == 400 and "nombre" in res.text.lower():
+            existentes = client.get("/categories?status=all", headers=auth).json()
+            ya = next(
+                (c for c in existentes
+                 if c["name"].lower() == name.lower() and c["parent_id"] is None),
+                None,
+            )
+            assert ya is not None, f"400 por duplicado pero no encuentro el grupo '{name}'"
             return ya
         assert res.status_code == 200, res.text
         return res.json()
 
+    _make.group = _make_group
     return _make

@@ -15,8 +15,9 @@ from app.models.debt import Debt
 from app.models.enums import TransactionType
 from app.models.saving_account import SavingAccount
 from app.models.transaction import Transaction
-from app.schemas.budget import BudgetCreate, BudgetProgress
+from app.schemas.budget import BudgetGroup, BudgetsResponse, BudgetCreate, BudgetProgress
 from app.utils.currency_helpers import validate_currency_code
+from app.utils.category_rules import exigir_hoja, nombre_visible
 
 router = APIRouter(prefix="/budgets", tags=["budgets"])
 
@@ -55,19 +56,15 @@ def _calc_spent(
     pagos de deuda no cuentan), separado por cuentas y por compras con
     tarjeta de crédito en esa misma moneda.
 
-    **Incluye las subcategorías.** Un presupuesto de "Transporte" que ignorara
-    "Transporte › Gasolina" mostraría al usuario que le queda plata cuando ya
-    la gastó -- el peor error posible en un presupuesto. Un presupuesto puesto
-    directamente sobre la subcategoría solo cuenta esa.
-    """
-    from app.models.category import Category
+    Cuenta SOLO esta categoría. Desde el modelo grupo/hoja (2026-09-09) los
+    presupuestos viven en las hojas, así que no hay nada que agregar acá: el
+    total de un grupo se deriva sumando los de sus hojas, en `_derivar_grupos`.
 
-    ids = [category_id] + [
-        c.id
-        for c in session.exec(
-            select(Category).where(Category.parent_id == category_id)
-        ).all()
-    ]
+    Antes esta función sumaba también las subcategorías, y como nada impedía
+    presupuestar el grupo Y la hoja, los mismos pesos contaban en los dos
+    presupuestos. La invariante I2 elimina esa ambigüedad por construcción.
+    """
+    ids = [category_id]
     from_accounts = session.exec(
         select(func.sum(Transaction.amount))
         .join(SavingAccount, Transaction.saving_account_id == SavingAccount.id)
@@ -108,7 +105,12 @@ def _to_progress(session: Session, budget: Budget, month_start: dt.date, month_e
     return BudgetProgress(
         id=budget.id,
         category_id=budget.category_id,
-        category_name=category.name if category else "(categoría eliminada)",
+        parent_id=category.parent_id if category else None,
+        parent_name=(
+            (session.get(Category, category.parent_id).name
+             if category and category.parent_id else None)
+        ),
+        category_name=nombre_visible(session, category),
         currency=budget.currency,
         amount=budget.amount,
         effective_from=budget.effective_from,
@@ -134,6 +136,11 @@ def create_or_update_budget(
         ).first()
         if not category:
             raise HTTPException(status_code=400, detail="Categoría inválida o inactiva.")
+
+        # I2: el presupuesto de un grupo es DERIVADO (la suma de sus hojas), no
+        # se almacena. Permitir ambos hacía que los mismos pesos contaran dos
+        # veces -- el bug que este modelo elimina por construcción.
+        exigir_hoja(session, user_id, data.category_id, que="Un presupuesto")
         if category.is_system:
             raise HTTPException(status_code=400, detail="No puedes presupuestar una categoría de sistema.")
         if category.type == CategoryType.income:
@@ -181,8 +188,8 @@ def create_or_update_budget(
         return _to_progress(session, budget, month_start, month_end)
 
 
-@router.get("", response_model=List[BudgetProgress])
-@router.get("/", response_model=List[BudgetProgress])
+@router.get("", response_model=BudgetsResponse)
+@router.get("/", response_model=BudgetsResponse)
 def list_budgets(
     month: Optional[str] = Query(None, description="YYYY-MM, por defecto el mes en curso"),
     user_id: UUID = Depends(get_current_user_with_subscription_check),
@@ -211,7 +218,33 @@ def list_budgets(
             if budget.amount > 0  # amount=0 es "pausado desde este mes"
         ]
         result.sort(key=lambda r: r.percentage, reverse=True)
-        return result
+
+        # Totales por grupo: DERIVADOS de sus hojas, nunca almacenados (I2).
+        # Se calculan acá y no en el frontend para que el número no pueda
+        # divergir entre pantallas.
+        acumulado: dict[tuple[int, str], dict] = {}
+        for fila in result:
+            if not fila.parent_id:
+                continue
+            clave = (fila.parent_id, fila.currency)
+            g = acumulado.setdefault(
+                clave,
+                {"category_id": fila.parent_id, "category_name": fila.parent_name or "",
+                 "currency": fila.currency, "amount": 0.0, "spent": 0.0, "leaf_count": 0},
+            )
+            g["amount"] += fila.amount
+            g["spent"] += fila.spent
+            g["leaf_count"] += 1
+
+        groups = [
+            BudgetGroup(
+                **g,
+                percentage=(g["spent"] / g["amount"] * 100) if g["amount"] > 0 else 0.0,
+            )
+            for g in acumulado.values()
+        ]
+        groups.sort(key=lambda g: g.percentage, reverse=True)
+        return BudgetsResponse(groups=groups, items=result)
 
 
 @router.post("/{budget_id}/pause")

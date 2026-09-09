@@ -18,6 +18,7 @@ from app.schemas.category_rule import (
 )
 from app.utils.category_helpers import get_or_create_uncategorized_category
 from app.utils.category_rule_helpers import suggest_category
+from app.utils.category_rules import exigir_hoja, nombre_visible
 
 router = APIRouter(prefix="/category-rules", tags=["category-rules"])
 
@@ -27,7 +28,7 @@ def _to_read(session: Session, rule: CategoryRule) -> CategoryRuleRead:
     return CategoryRuleRead(
         id=rule.id,
         category_id=rule.category_id,
-        category_name=category.name if category else "(categoría eliminada)",
+        category_name=nombre_visible(session, category),
         match_text=rule.match_text,
         priority=rule.priority,
         is_active=rule.is_active,
@@ -53,6 +54,11 @@ def create_rule(
         ).first()
         if not category:
             raise HTTPException(status_code=400, detail="Categoría inválida o inactiva.")
+
+        # I1: una regla asigna una categoría a una transacción, así que su
+        # destino tiene que ser una hoja. Con importación bancaria esto pasa a
+        # ser crítico: una regla ambigua archiva mal a escala.
+        exigir_hoja(session, user_id, data.category_id, que="Una regla")
 
         max_priority = session.exec(
             select(func.max(CategoryRule.priority)).where(CategoryRule.user_id == user_id)

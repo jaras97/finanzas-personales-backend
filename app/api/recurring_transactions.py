@@ -20,6 +20,7 @@ from app.schemas.recurring_transaction import (
     RunResult,
     SkippedItem,
 )
+from app.utils.category_rules import exigir_hoja
 
 router = APIRouter(prefix="/recurring-transactions", tags=["recurring-transactions"])
 
@@ -67,6 +68,9 @@ def _validate_refs(
     ).first()
     if not category:
         raise HTTPException(status_code=400, detail="Categoría inválida o inactiva.")
+
+    # I1: el movimiento que genere este recurrente tiene que caer en una hoja.
+    exigir_hoja(session, user_id, category_id, que="Un movimiento recurrente")
 
     expected = CategoryType.income if tx_type == TransactionType.income else CategoryType.expense
     if category.type not in (expected, CategoryType.both):

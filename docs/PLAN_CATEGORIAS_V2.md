@@ -95,9 +95,9 @@ Cada fase deja el sistema **coherente y desplegable**. No hay estados intermedio
 
 ---
 
-## Fase 0 — Fundación del modelo
+## Fase 0 — Fundación del modelo ✅ (2026-09-09)
 
-*Backend. Sin cambios visibles. Es la base de todo lo demás.*
+*Backend + el mínimo de frontend para que fuera desplegable sola.*
 
 **Qué se hace**
 
@@ -112,7 +112,16 @@ Cada fase deja el sistema **coherente y desplegable**. No hay estados intermedio
 
 **Riesgo:** es la fase que toca más superficie del backend. Mitigación: los ~211 tests actuales son la red, y hay que añadir los de las invariantes **antes** de escribir el código que las hace cumplir.
 
-**Verificación:** una transacción a un grupo → 400. Un presupuesto a un grupo → 400. Desactivar la última hoja no deja un grupo huérfano. El doble conteo del presupuesto desaparece (test explícito).
+**Verificación:** hecha. 224 tests backend (15 nuevos de invariantes) y 112 de frontend, más una comprobación en navegador de punta a punta.
+
+### Lo que se aprendió al implementarla
+
+- **El frontend NO podía quedarse fuera.** Los selectores ofrecían grupos, y elegir uno daría 400 al guardar. La fase incluyó `postableCategories` (solo hojas) y `categoryDisplayName` (colapso del grupo de una hoja) en los seis formularios. Sin eso, la Fase 0 no era desplegable sola.
+- **El colapso también hace falta del lado del servidor.** `nombre_visible()` en `utils/category_rules.py`: la vista previa del CSV, las reglas y los presupuestos devuelven un nombre ya renderizado, y sin él mostraban «General» en vez de «Streaming». El grupo `Sistema` se excluye del prefijo, o daría «Sistema › Sin categorizar».
+- **`GET /budgets` cambió de forma** a `{groups, items}` — `groups` son los totales derivados. Es un cambio incompatible, por eso el hook del frontend fue en el mismo despliegue.
+- **El selector de taxonomía bloqueaba mal.** Un grupo no tiene movimientos propios, así que aparecía como desmarcable aunque sus hojas tuvieran; ahora suma los de sus hojas.
+- **Tres tests del modelo anterior quedaron obsoletos** y se eliminaron dejando anotado qué los reemplaza. No se «arreglaron»: probaban un comportamiento que ya no queremos.
+- **Un grupo `Sistema` vacío viola I3.** La primera versión de la migración lo creaba para todos los usuarios, incluidos los 10 que no tenían ninguna categoría de sistema. La aserción de la propia migración lo detuvo antes de escribir nada.
 
 ---
 

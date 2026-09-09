@@ -36,6 +36,40 @@ def _adopt_by_name_if_exists(
     return None
 
 
+def get_or_create_system_group(session: Session, user_id: UUID) -> Category:
+    """Grupo oculto que aloja a las categorías operativas.
+
+    Existe para que la invariante «solo las hojas reciben dinero» no necesite
+    excepciones: sin él, Transferencia y Sin categorizar serían grupos de
+    primer nivel y no podrían recibir los movimientos que sí reciben.
+
+    Es de tipo `both` a propósito: dentro conviven Rendimientos (ingreso) y
+    Comisiones (egreso), y un padre `both` admite hojas de cualquier tipo.
+    """
+    grupo = session.exec(
+        select(Category).where(
+            Category.user_id == user_id,
+            Category.system_key == SystemCategoryKey.SYSTEM_GROUP.value,
+        )
+    ).first()
+    if grupo:
+        return grupo
+
+    grupo = Category(
+        user_id=user_id,
+        name="Sistema",
+        type=CategoryType.both,
+        is_system=True,
+        system_key=SystemCategoryKey.SYSTEM_GROUP.value,
+        is_active=True,
+        color="slate",
+    )
+    session.add(grupo)
+    session.commit()
+    session.refresh(grupo)
+    return grupo
+
+
 def get_or_create_system_category(
     session: Session,
     user_id: UUID,
@@ -54,15 +88,29 @@ def get_or_create_system_category(
             Category.system_key == key.value,
         )
     ).first()
+    grupo = get_or_create_system_group(session, user_id)
+
     if cat:
+        # Datos anteriores al modelo grupo/hoja: si quedó en primer nivel, se
+        # recuelga. Así una cuenta vieja converge sin migración aparte.
+        if cat.parent_id is None:
+            cat.parent_id = grupo.id
+            session.add(cat)
+            session.commit()
+            session.refresh(cat)
         return cat
 
     # Intentar adoptar por nombre (compatibilidad con datos existentes)
     adopted = _adopt_by_name_if_exists(session, user_id, default_name, type_, key)
     if adopted:
+        if adopted.parent_id is None:
+            adopted.parent_id = grupo.id
+            session.add(adopted)
+            session.commit()
+            session.refresh(adopted)
         return adopted
 
-    # Crear nueva
+    # Crear nueva, ya como hoja del grupo Sistema
     cat = Category(
         user_id=user_id,
         name=default_name,
@@ -70,6 +118,7 @@ def get_or_create_system_category(
         is_system=True,
         system_key=key.value,
         is_active=True,
+        parent_id=grupo.id,
     )
     session.add(cat)
     session.commit()
@@ -178,6 +227,7 @@ def sembrar_categorias_sugeridas(
 
     No hace commit: lo hace quien llama.
     """
+    from app.utils.category_rules import crear_hoja_por_defecto
     from app.utils.default_categories import CORE_CATEGORIES, DEFAULT_CATEGORIES
 
     candidatas = CORE_CATEGORIES if solo_nucleo else DEFAULT_CATEGORIES
@@ -201,6 +251,11 @@ def sembrar_categorias_sugeridas(
             # El usuario puede renombrarlas, recolorearlas o desactivarlas.
         )
         session.add(nueva)
+        # Nace como grupo, y un grupo sin hojas no recibe nada (I3). La hoja
+        # "General" es donde caen los movimientos mientras el usuario no
+        # desglose; la interfaz colapsa ese caso en una sola línea.
+        session.flush()
+        crear_hoja_por_defecto(session, nueva)
         creadas.append(nueva)
         # Se agrega al set para que dos candidatas que normalizan igual no se
         # dupliquen entre sí dentro de la misma llamada.

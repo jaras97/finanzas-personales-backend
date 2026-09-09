@@ -19,6 +19,7 @@ from app.schemas.transaction import TransactionWithCategoryRead
 from sqlalchemy.orm import joinedload
 from sqlalchemy import func
 from app.utils.category_helpers import get_or_create_transfer_category
+from app.utils.category_rules import exigir_hoja
 
 router = APIRouter(prefix="/transactions", tags=["transactions"])
 
@@ -42,6 +43,9 @@ def create_transaction(
         ).first()
         if not category:
             raise HTTPException(status_code=400, detail="Categoría inválida")
+
+        # I1: solo las hojas reciben movimientos. Un grupo agrupa, no recibe.
+        exigir_hoja(session, user_id, transaction_data.category_id, que="Un movimiento")
 
         if transaction_data.saving_account_id is None:
             raise HTTPException(status_code=400, detail="Se requiere una cuenta asociada.")
