@@ -128,8 +128,17 @@ def _periodo_anterior(inicio: date, fin: date) -> tuple[date, date]:
         fin_anterior_mes = inicio - timedelta(days=1)
         ini_anterior = fin_anterior_mes.replace(day=1)
         dias_mes_anterior = calendar.monthrange(ini_anterior.year, ini_anterior.month)[1]
-        # Si el mes anterior es más corto (comparar el 31 contra febrero),
-        # se corta en su último día en vez de desbordar.
+
+        # Si el rango es el mes ENTERO, se compara contra el mes anterior
+        # entero. Recortarlo al mismo número de días dejaría fuera el 31 de
+        # agosto al mirar septiembre, y el total no cuadraría con lo que el
+        # usuario ve si abre agosto.
+        dias_este_mes = calendar.monthrange(inicio.year, inicio.month)[1]
+        if fin.day == dias_este_mes:
+            return ini_anterior, ini_anterior.replace(day=dias_mes_anterior)
+
+        # Mes en curso: mismo tramo, recortado si el anterior es más corto
+        # (mirar el 31 de marzo contra febrero).
         return ini_anterior, ini_anterior.replace(day=min(fin.day, dias_mes_anterior))
 
     dias = (fin - inicio).days + 1

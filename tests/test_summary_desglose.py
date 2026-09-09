@@ -253,3 +253,43 @@ class TestRangoParcial:
 
         assert hoja["previous_total"] == 80_000
         assert hoja["delta_percentage"] == -50.0
+
+
+class TestPeriodoDeComparacion:
+    """El cálculo del rango anterior, directo.
+
+    Se prueba la función y no el endpoint porque los casos límite (meses de
+    distinta longitud, febrero) son incómodos de montar con transacciones y
+    fáciles de equivocar. Un bug real que esto atrapa: recortar el mes
+    anterior al mismo número de días dejaba fuera el 31 de agosto al mirar
+    septiembre, y el total no cuadraba con lo que el usuario ve si abre agosto.
+    """
+
+    def test_un_mes_completo_va_contra_el_mes_anterior_completo(self):
+        from app.api.summary import _periodo_anterior
+
+        assert _periodo_anterior(dt.date(2026, 9, 1), dt.date(2026, 9, 30)) == (
+            dt.date(2026, 8, 1), dt.date(2026, 8, 31),
+        )
+
+    def test_lo_que_va_del_mes_va_contra_el_mismo_tramo(self):
+        from app.api.summary import _periodo_anterior
+
+        assert _periodo_anterior(dt.date(2026, 9, 1), dt.date(2026, 9, 9)) == (
+            dt.date(2026, 8, 1), dt.date(2026, 8, 9),
+        )
+
+    def test_se_recorta_cuando_el_mes_anterior_es_mas_corto(self):
+        from app.api.summary import _periodo_anterior
+
+        assert _periodo_anterior(dt.date(2026, 3, 1), dt.date(2026, 3, 31)) == (
+            dt.date(2026, 2, 1), dt.date(2026, 2, 28),
+        )
+
+    def test_un_rango_suelto_va_contra_la_misma_duracion(self):
+        from app.api.summary import _periodo_anterior
+
+        # 16 días del 5 al 20 -> los 16 días anteriores
+        assert _periodo_anterior(dt.date(2026, 9, 5), dt.date(2026, 9, 20)) == (
+            dt.date(2026, 8, 20), dt.date(2026, 9, 4),
+        )
