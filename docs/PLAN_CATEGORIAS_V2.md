@@ -249,9 +249,21 @@ Cada fase deja el sistema **coherente y desplegable**. No hay estados intermedio
 
 ---
 
-## Fase 5 — Primer arranque
+## Fase 5 — Primer arranque ✅ (2026-09-10)
 
 *Frontend.*
+
+### Lo que se aprendió al implementarla
+
+**El Resumen de una cuenta nueva quedaba literalmente en blanco.** Sin cuentas no hay monedas, sin monedas no hay resumen, y la pantalla renderizaba solo su encabezado y un selector de fechas sobre nada. Es lo primero que ve alguien que acaba de registrarse en su app de finanzas. Ahora hay un mapa de tres pasos con enlaces reales, que desaparece solo en cuanto hay un movimiento. **No es un asistente obligatorio**, por la razón del punto 1: 11 de 18 usuarios nunca registraron una transacción, y anteponer configuración al primer gasto añade fricción justo donde ya se cae la gente.
+
+**Un estado vacío son en realidad DOS, y piden acciones opuestas.** «Todavía no has registrado nada» y «tus filtros no devuelven nada» se ven igual y se resolvían con el mismo texto. Ofrecer «Limpiar filtros» a quien acaba de registrarse es darle salida a un problema que no tiene; explicarle qué es una transacción a quien lleva tres años de historial es ruido. Distinguirlos exige saber si el usuario tiene **algún** movimiento, sin rango de fechas — la lista arranca filtrada al mes en curso, así que quien tenga historial de agosto se vería tratado como recién llegado (`useHasAnyTransactions`).
+
+**Una acción de estado vacío tiene que hacer algo.** La primera versión ofrecía «Volver al rango por defecto» a quien ya estaba en el rango por defecto: un botón muerto. Lo que falta ahí es ensanchar la ventana, no reiniciarla.
+
+**El icono de una hoja casi siempre está vacío.** La identidad visual la lleva el grupo, así que pintar el icono de la hoja dejaba casi todas las filas con el genérico. Se usa el del grupo como respaldo — y en el drill-down, el glifo va **siempre en el color saturado**: los tonos claros sirven para separar rebanadas del donut, pero un icono en ese tono sobre su propio fondo al 13% de opacidad no se ve.
+
+### Qué se construyó
 
 1. **Primer ingreso a Categorías**: se mantiene la invitación descartable que abre el selector. **No se convierte en un paso obligatorio de onboarding** — la app tiene que funcionar desde el minuto cero y anteponer configuración al primer gasto añade fricción justo donde ya se cae la gente.
 2. **Estados vacíos que enseñan**: en Transacciones, Resumen y Presupuestos, con una acción concreta en vez de un «no hay datos».
