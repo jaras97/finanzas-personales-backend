@@ -205,9 +205,22 @@ def list_categories(
             if c.parent_id and c.is_active:
                 hijas_por_grupo.setdefault(c.parent_id, []).append(c)
 
+        # Conteo en UNA consulta, no una por fila: este listado se pide en
+        # cada formulario que tenga selector de categoría.
+        conteos = {
+            cid: n
+            for cid, n in session.exec(
+                select(Transaction.category_id, func.count(Transaction.id))
+                .where(Transaction.user_id == user_id)
+                .group_by(Transaction.category_id)
+            ).all()
+            if cid is not None
+        }
+
         salida = []
         for c in categories:
             datos = CategoryRead.model_validate(c).model_dump()
+            datos["transactions_count"] = conteos.get(c.id, 0)
             datos["parent_name"] = nombres.get(c.parent_id) if c.parent_id else None
             datos["is_group"] = c.parent_id is None
             hijas = hijas_por_grupo.get(c.id, [])

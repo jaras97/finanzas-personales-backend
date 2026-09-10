@@ -169,7 +169,10 @@ class TestRollup:
         self._gastar(client, auth, cuenta, peajes["id"], 30_000)
         self._gastar(client, auth, cuenta, gasolina["id"], 70_000)
 
-        hoy = dt.date.today()
+        # UTC, no local: el resumen se pide con tz=UTC y los movimientos se
+        # crean con now(timezone.utc). Mezclar husos hacía fallar el test de
+        # noche, cuando la fecha local y la UTC ya no coinciden.
+        hoy = dt.datetime.now(dt.timezone.utc).date()
         res = client.get(
             f"/summary?start_date={hoy}&end_date={hoy}&tz=UTC",
             headers=auth,

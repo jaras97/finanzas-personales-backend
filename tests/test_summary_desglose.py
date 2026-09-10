@@ -24,7 +24,15 @@ def _cualquier_hoja(client, auth):
 
 
 def _hoy():
-    return dt.date.today()
+    """Hoy en UTC, no en la zona local.
+
+    Los tests piden el resumen con `tz=UTC` y crean los movimientos con
+    `datetime.now(timezone.utc)`. Usar `date.today()` (que es local) mezclaba
+    los dos husos: a partir de las 19:00 en UTC-5 la transacción caía en el día
+    UTC siguiente y quedaba fuera del rango pedido. Los tests fallaban solo de
+    noche — una bomba de tiempo, no un fallo del código.
+    """
+    return dt.datetime.now(dt.timezone.utc).date()
 
 
 def _summary(client, auth, inicio=None, fin=None):

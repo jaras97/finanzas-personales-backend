@@ -50,6 +50,10 @@ class CategoryRead(BaseModel):
     # Para un grupo de una sola hoja: su id. Es lo que hace posible que la
     # interfaz muestre "Mascotas" como una línea y aun así sepa dónde registrar.
     default_leaf_id: Optional[int] = None
+    # Movimientos asociados. La interfaz lo necesita para saber si al
+    # desglosar una categoría hay algo que reubicar, y para no preguntar
+    # cuando no hace falta.
+    transactions_count: int = 0
 
     model_config = ConfigDict(from_attributes=True)
 
