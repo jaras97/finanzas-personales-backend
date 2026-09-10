@@ -1,6 +1,6 @@
 from uuid import UUID
 from pydantic import BaseModel, ConfigDict
-from typing import Optional
+from typing import List, Optional
 from datetime import datetime
 from app.models.enums import TransactionType
 from app.schemas.category import CategoryRead
@@ -65,3 +65,25 @@ class TransactionUpdateLimited(BaseModel):
     description: Optional[str] = None
     category_id: Optional[int] = None
     date: Optional[datetime] = None 
+
+class BulkCategoryUpdate(BaseModel):
+    """Asignar una misma categoría a varios movimientos de una vez."""
+    transaction_ids: List[int]
+    category_id: int
+
+
+class BulkCategorySkipped(BaseModel):
+    id: int
+    reason: str
+
+
+class BulkCategoryResult(BaseModel):
+    """Qué se pudo y qué no.
+
+    Una recategorización masiva NO es todo-o-nada: si de treinta movimientos
+    uno es una transferencia automática, abortar los otros veintinueve por eso
+    convierte una acción de un clic en un juego de adivinanzas. Se aplica lo
+    aplicable y se dice exactamente qué quedó fuera y por qué.
+    """
+    updated: int
+    skipped: List[BulkCategorySkipped]
