@@ -22,6 +22,7 @@ from app.models.saving_account import SavingAccount
 from app.models.debt import Debt
 from app.core.security import get_current_user_with_subscription_check
 from app.utils.currency_helpers import get_user_currencies
+from app.utils.category_rules import es_sin_clasificar
 
 router = APIRouter(prefix="/summary", tags=["summary"])
 
@@ -96,7 +97,7 @@ def _totales_por_categoria(transacciones, tipo) -> dict:
         if tx.type != tipo:
             continue
         cat = tx.category
-        if cat is None:
+        if es_sin_clasificar(cat):
             totales[SIN_CATEGORIA_ID] += tx.amount
             continue
         padre = cat.parent if cat.parent_id else None
@@ -176,7 +177,10 @@ def _desglose(
         if tx.type != tipo:
             continue
         cat = tx.category
-        if cat is None:
+        if es_sin_clasificar(cat):
+            # Las dos formas de «sin clasificar» caen en la MISMA fila. Antes
+            # la hoja de sistema se reportaba como una categoría más y el
+            # Resumen mostraba dos líneas llamadas igual.
             _bucket(SIN_CATEGORIA_ID, "Sin categorizar", "slate", None)["total"] += tx.amount
             continue
 

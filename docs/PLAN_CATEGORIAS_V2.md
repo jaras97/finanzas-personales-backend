@@ -218,14 +218,34 @@ Cada fase deja el sistema **coherente y desplegable**. No hay estados intermedio
 
 ---
 
-## Fase 4 — Higiene: recategorizar
+## Fase 4 — Higiene: recategorizar ✅ (2026-09-10)
 
-*Frontend, reutilizando el selector de la Fase 2.*
+*Frontend, reutilizando el selector de la Fase 2 — más tres arreglos en el backend que la fase destapó.*
+
+### Lo que se aprendió al implementarla
+
+**«Sin clasificar» eran DOS estados en la base y uno solo para el usuario.** Los movimientos manuales anteriores a que la categoría fuera obligatoria tienen `category_id IS NULL`; la importación de CSV, en cambio, deja lo que ninguna regla resuelve en la hoja de sistema «Sin categorizar». El desglose del Resumen los contaba como dos categorías distintas y pintaba **dos filas llamadas igual**, indistinguibles entre sí. Ahora la regla vive en un solo sitio (`es_sin_clasificar` / `condicion_sin_clasificar`) y las dos formas caen en la misma línea.
+
+**`PATCH /transactions/{id}` se saltaba la invariante I1.** Validaba el tipo de la categoría pero no que fuera hoja: se podía mover un movimiento a un grupo con una edición, aunque crearlo ahí estuviera prohibido. Nadie lo había pisado porque el único camino a ese endpoint era el modal de edición, cuyo selector ya filtraba grupos. La Fase 4 convierte ese endpoint en el más transitado de la app, así que el agujero habría salido enseguida.
+
+**El contador tiene que contar solo lo que el usuario puede arreglar.** Sin clasificar *y* editable: un aviso que incluya reversas, canceladas o movimientos generados por el sistema manda a alguien a una bandeja que nunca va a poder vaciar. Los tests iniciales no llegaban a probarlo — usaban transferencias, que ya quedaban fuera por tener categoría — y la mutación sobrevivió hasta que se construyó el caso real: sin categoría e intocable a la vez, que solo se alcanza por SQL directo.
+
+**El selector se rompía justo en la cuenta nueva.** En una cuenta recién creada cada grupo tiene solo su hoja sintética, así que el selector de la Fase 2 abría con **trece cabeceras y trece opciones llamadas todas «General»**. La verificación de la Fase 2 no lo vio porque se hizo sobre una cuenta con subcategorías reales. Ahora el picker colapsa igual que la lista de Categorías: un grupo sin desglosar se ofrece como una sola opción con su nombre.
+
+**Y la lista de movimientos mostraba «General» en cada fila.** `parent_name` solo lo rellena `GET /categories`; la categoría embebida en una transacción no lo trae, así que el colapso del nombre no podía aplicarse. `categoryDisplayName` ahora busca el grupo por `parent_id` en el árbol y deja `parent_name` como respaldo.
+
+**Los mensajes de error nombran el grupo, no la hoja.** «"General" no admite ingresos» manda al usuario a buscar algo que no existe en su pantalla. Todo motivo de rechazo pasa por `nombre_visible`.
+
+**La operación masiva no es todo-o-nada.** Si de veinte seleccionados uno no admite la categoría, se aplican los diecinueve y se devuelve el detalle de lo que quedó fuera con su motivo. Abortar los veinte por uno convierte una acción de un clic en un juego de adivinanzas.
+
+### Qué se construyó
 
 1. **Aviso de pendientes**: banner discreto cuando hay transacciones sin categorizar, con el número y un enlace directo.
 2. **Flujo de clasificación rápida**: lista filtrada a «Sin categorizar», con el selector inline en cada fila. Sin abrir un modal por transacción.
 3. **Recategorización masiva**: seleccionar varias y asignar de una vez. Imprescindible cuando entre la importación bancaria.
 4. **Cambio inline desde la lista**: clic en el chip de categoría → selector. Hoy hay que abrir el modal de edición completo.
+
+**Backend nuevo:** `GET /transactions/uncategorized/count` (sin rango de fechas: un pendiente de marzo tiene que avisar en septiembre), el filtro `uncategorized=true` en `/transactions/with-category`, y `PATCH /transactions/bulk-category` (máximo 500, valida dueño por fila).
 
 ---
 

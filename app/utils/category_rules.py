@@ -146,3 +146,42 @@ def nombre_visible(session: Session, categoria: Optional[Category]) -> str:
     if len(hermanas) <= 1:
         return grupo.name
     return f"{grupo.name} › {categoria.name}"
+
+
+def es_sin_clasificar(categoria: Optional[Category]) -> bool:
+    """¿Este movimiento sigue sin clasificar?
+
+    En los datos son DOS cosas distintas y para el usuario una sola:
+
+      - `category_id IS NULL`: movimientos manuales de antes de que la
+        categoría fuera obligatoria.
+      - la hoja de sistema «Sin categorizar»: donde la importación de CSV deja
+        lo que ninguna regla supo resolver.
+
+    Tratarlas por separado dejaba **dos filas «Sin categorizar»** en el
+    desglose del Resumen, una por cada forma, sin manera de distinguirlas.
+    """
+    if categoria is None:
+        return True
+    return categoria.system_key == SystemCategoryKey.UNCATEGORIZED.value
+
+
+def condicion_sin_clasificar(session: Session, user_id: UUID):
+    """La misma regla que `es_sin_clasificar`, como filtro SQL.
+
+    Devuelve una condición para `WHERE` en consultas sobre `transaction`.
+    """
+    from sqlalchemy import or_
+
+    from app.models.transaction import Transaction
+
+    hoja = session.exec(
+        select(Category).where(
+            Category.user_id == user_id,
+            Category.system_key == SystemCategoryKey.UNCATEGORIZED.value,
+        )
+    ).first()
+    sin_categoria = Transaction.category_id == None  # noqa: E711
+    if hoja is None:
+        return sin_categoria
+    return or_(sin_categoria, Transaction.category_id == hoja.id)

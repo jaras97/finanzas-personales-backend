@@ -10,7 +10,7 @@ from app.models.debt_transaction import DebtTransaction, DebtTransactionType
 from app.models.enums import TransactionType
 from app.models.saving_account import SavingAccount, SavingAccountStatus, SavingAccountType
 from app.models.transaction import Transaction
-from app.schemas.transaction import RegisterYieldCreate, ReverseRequest, TransactionCreate, TransactionDescriptionUpdate, TransactionRead, TransactionUpdateLimited, TransferCreate
+from app.schemas.transaction import BulkCategoryResult, BulkCategorySkipped, BulkCategoryUpdate, RegisterYieldCreate, ReverseRequest, TransactionCreate, TransactionDescriptionUpdate, TransactionRead, TransactionUpdateLimited, TransferCreate
 from app.core.security import get_current_user_with_subscription_check
 import datetime as dt
 from typing import Optional, List
@@ -19,7 +19,7 @@ from app.schemas.transaction import TransactionWithCategoryRead
 from sqlalchemy.orm import joinedload
 from sqlalchemy import func
 from app.utils.category_helpers import get_or_create_transfer_category
-from app.utils.category_rules import exigir_hoja
+from app.utils.category_rules import condicion_sin_clasificar, exigir_hoja, nombre_visible
 
 router = APIRouter(prefix="/transactions", tags=["transactions"])
 
@@ -250,6 +250,33 @@ def register_yield(
         return tx
 
 
+def _tipo_incompatible(
+    session: Session, category: Category, tipo: TransactionType
+) -> Optional[str]:
+    """Motivo por el que esta categoría no admite ese movimiento, o None.
+
+    Devuelve texto en vez de lanzar porque lo preguntan dos sitios con
+    reacciones distintas: la edición puntual aborta con 400, la masiva anota
+    el motivo y sigue con el resto. La regla, en cambio, tiene que ser una
+    sola: que se respondiera distinto en cada una sería un agujero por donde
+    entrarían datos que el Resumen no sabe sumar.
+
+    El nombre sale de `nombre_visible`, no de `category.name`: la hoja se llama
+    «General» y el usuario nunca la ha visto con ese nombre. Un error que dice
+    «"General" no admite ingresos» lo manda a buscar algo que no existe en su
+    pantalla.
+    """
+    if category.type == CategoryType.both:
+        return None
+    admite_ingresos = category.type == CategoryType.income
+    if admite_ingresos == (tipo == TransactionType.income):
+        return None
+    return (
+        f"«{nombre_visible(session, category)}» no admite "
+        f"{'ingresos' if tipo == TransactionType.income else 'egresos'}"
+    )
+
+
 @router.get("/with-category", response_model=dict)
 def list_transactions_with_category(
     user_id: UUID = Depends(get_current_user_with_subscription_check),
@@ -258,6 +285,7 @@ def list_transactions_with_category(
     category_id: Optional[int] = Query(None, alias="categoryId"),
     type: Optional[TransactionType] = Query(None),
     source: Optional[str] = Query(None),  # ✅ nuevo filtro
+    uncategorized: bool = Query(False),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     include_reversals: bool = Query(False)
@@ -271,6 +299,12 @@ def list_transactions_with_category(
             query = query.where(Transaction.date <= end_date)
         if category_id:
             query = query.where(Transaction.category_id == category_id)
+        if uncategorized:
+            # Deliberadamente NO es un `categoryId` más: «sin clasificar» son
+            # dos estados distintos en la base (NULL y la hoja de sistema) y
+            # un id solo puede expresar uno.
+            for cond in condiciones_pendiente(session, user_id):
+                query = query.where(cond)
         if type in ["income", "expense", "transfer"]:
             query = query.where(Transaction.type == type)
 
@@ -327,6 +361,106 @@ def list_transactions_with_category(
     
 
 
+def condiciones_pendiente(session: Session, user_id: UUID) -> list:
+    """Qué cuenta como «pendiente de clasificar».
+
+    Sin clasificar **y** editable. La segunda mitad importa tanto como la
+    primera: un contador que incluya movimientos que el usuario no puede
+    tocar (una reversa, una compra con tarjeta generada por el sistema) manda
+    a alguien a una bandeja que nunca va a poder vaciar.
+    """
+    return [
+        condicion_sin_clasificar(session, user_id),
+        Transaction.is_cancelled == False,  # noqa: E712
+        Transaction.reversed_transaction_id == None,  # noqa: E711
+        Transaction.source_type == None,  # noqa: E711
+        Transaction.type.in_([TransactionType.income, TransactionType.expense]),
+    ]
+
+
+@router.get("/uncategorized/count", response_model=dict)
+def count_uncategorized(
+    user_id: UUID = Depends(get_current_user_with_subscription_check),
+):
+    """Cuántos movimientos esperan categoría, en todo el historial.
+
+    Sin rango de fechas a propósito: el aviso tiene que aparecer aunque lo
+    pendiente sea de marzo y el usuario esté mirando septiembre. Un pendiente
+    que solo se ve si acertaste el filtro no es un aviso.
+    """
+    with Session(engine) as session:
+        query = select(func.count()).select_from(Transaction).where(
+            Transaction.user_id == user_id
+        )
+        for cond in condiciones_pendiente(session, user_id):
+            query = query.where(cond)
+        return {"count": session.exec(query).one()}
+
+
+@router.patch("/bulk-category", response_model=BulkCategoryResult)
+def bulk_update_category(
+    data: BulkCategoryUpdate,
+    user_id: UUID = Depends(get_current_user_with_subscription_check),
+):
+    """Asigna una categoría a varios movimientos en una sola operación.
+
+    Aplica lo aplicable y devuelve el detalle de lo que quedó fuera: ver
+    `BulkCategoryResult`. La categoría se valida UNA vez (es la misma para
+    todos); lo que se comprueba por fila es la elegibilidad del movimiento y
+    que su tipo case con el de la categoría.
+    """
+    if not data.transaction_ids:
+        raise HTTPException(status_code=400, detail="No hay movimientos seleccionados.")
+    if len(data.transaction_ids) > 500:
+        raise HTTPException(
+            status_code=400,
+            detail="Demasiados movimientos en una sola operación (máximo 500).",
+        )
+
+    with Session(engine) as session:
+        categoria = exigir_hoja(session, user_id, data.category_id, que="Un movimiento")
+
+        # Se piden por id Y por dueño: sin el segundo filtro, mandar ids
+        # ajenos permitiría recategorizar los movimientos de otra cuenta.
+        transacciones = session.exec(
+            select(Transaction).where(
+                Transaction.id.in_(set(data.transaction_ids)),
+                Transaction.user_id == user_id,
+            )
+        ).all()
+
+        encontrados = {t.id for t in transacciones}
+        skipped: list[BulkCategorySkipped] = [
+            BulkCategorySkipped(id=i, reason="No encontrado")
+            for i in set(data.transaction_ids) - encontrados
+        ]
+
+        actualizados = 0
+        for tx in transacciones:
+            motivo = None
+            if tx.is_cancelled:
+                motivo = "Está cancelada"
+            elif tx.reversed_transaction_id:
+                motivo = "Es una reversa"
+            elif tx.source_type is not None:
+                motivo = "La generó el sistema"
+            elif tx.type not in (TransactionType.income, TransactionType.expense):
+                motivo = "No es un ingreso ni un egreso"
+            else:
+                motivo = _tipo_incompatible(session, categoria, tx.type)
+
+            if motivo:
+                skipped.append(BulkCategorySkipped(id=tx.id, reason=motivo))
+                continue
+
+            tx.category_id = categoria.id
+            session.add(tx)
+            actualizados += 1
+
+        session.commit()
+        return BulkCategoryResult(updated=actualizados, skipped=skipped)
+
+
 @router.patch("/{transaction_id}", response_model=TransactionRead)
 def update_transaction_limited(
     transaction_id: int,
@@ -359,23 +493,15 @@ def update_transaction_limited(
 
         # Validar categoría (si viene)
         if data.category_id is not None:
-            category = session.exec(
-                select(Category).where(
-                    Category.id == data.category_id,
-                    Category.user_id == user_id,
-                    Category.is_active == True
-                )
-            ).first()
-            if not category:
-                raise HTTPException(status_code=400, detail="Categoría inválida")
-
-            if not (
-                (category.type == CategoryType.both) or
-                (category.type == CategoryType.income and tx.type == TransactionType.income) or
-                (category.type == CategoryType.expense and tx.type == TransactionType.expense)
-            ):
-                raise HTTPException(status_code=400, detail="La categoría no coincide con el tipo de la transacción")
-
+            # `exigir_hoja` en vez de un SELECT propio: este endpoint se
+            # saltaba la invariante I1 (solo las hojas reciben dinero) y
+            # permitía mover un movimiento a un grupo con un PATCH, aunque
+            # crearlo ahí estuviera prohibido. Con la recategorización de la
+            # Fase 4 este es justo el camino más transitado.
+            category = exigir_hoja(session, user_id, data.category_id, que="Un movimiento")
+            incompatible = _tipo_incompatible(session, category, tx.type)
+            if incompatible:
+                raise HTTPException(status_code=400, detail=incompatible)
             tx.category_id = data.category_id
 
         # Descripción (si viene)
