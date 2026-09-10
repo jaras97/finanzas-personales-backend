@@ -67,7 +67,8 @@ Ver [DATA_MODEL.md](DATA_MODEL.md) para el detalle de tablas. Puntos clave de di
 - **`Transaction`** es el ledger central; las transferencias se modelan como un par expense+income unidos por `transfer_group_id`, no con `type="transfer"`.
 - **`DebtTransaction`** es un subledger separado, solo para el historial de una deuda puntual (pagos/cargos), distinto de las filas que también se crean en `Transaction` para que esos movimientos aparezcan en los reportes generales.
 - **`RecurringTransaction`** (desde 2026-08-22) son plantillas, no movimientos: `POST /recurring-transactions/run` las materializa en filas reales de `transaction` (con `source_type="recurring"`) aplicando los mismos efectos de saldo que una entrada manual. `frequency` es `varchar`, deliberadamente **no** un enum de Postgres — los enums en este proyecto ya causaron drift entre entornos dos veces; la validación vive en los schemas Pydantic.
-- **Categorías de sistema** (`is_system=True`, `system_key`) se crean automáticamente al registrar un usuario (`create_base_categories`) y no pueden eliminarse ni cambiar de tipo desde la API.
+- **`Category` es un árbol de exactamente dos niveles** (desde 2026-09-09): `parent_id IS NULL` es un **grupo** y nunca recibe dinero; `parent_id NOT NULL` es una **hoja** y es la única que lo recibe. `app/utils/category_rules.py` es el único sitio donde vive esa regla — `exigir_hoja()` la aplican los cinco endpoints que asignan categoría (transacciones al crear y al editar, compras con tarjeta, presupuestos, reglas de categorización, recurrentes), y basta con que uno se olvide para que la invariante deje de valerse. Detalle del modelo en [DATA_MODEL.md](DATA_MODEL.md), y el porqué en [PLAN_CATEGORIAS_V2.md](PLAN_CATEGORIAS_V2.md).
+- **Categorías de sistema** (`is_system=True`, `system_key`) se crean automáticamente al registrar un usuario (`create_base_categories`) y no pueden eliminarse ni cambiar de tipo desde la API. Desde el modelo grupo/hoja cuelgan todas de un grupo oculto `Sistema` (`system_key='system_group'`), para que «solo las hojas reciben dinero» no necesite excepciones.
 
 ## Deploy
 
@@ -78,7 +79,7 @@ Ver [DATA_MODEL.md](DATA_MODEL.md) para el detalle de tablas. Puntos clave de di
 
 ## Tests
 
-`pytest` en `tests/`, 67 casos, contra **Postgres real** (no SQLite: el proyecto usa tipos específicos de PG y ya tuvo incidentes por diferencias entre entornos).
+`pytest` en `tests/`, **249 casos** (2026-09-10), contra **Postgres real** (no SQLite: el proyecto usa tipos específicos de PG y ya tuvo incidentes por diferencias entre entornos).
 
 ```bash
 pip install -r requirements-dev.txt
@@ -91,6 +92,10 @@ Usa una base separada (`finances_test`, o `TEST_DATABASE_URL`), que `tests/conft
 `pythonpath = .` en `pytest.ini` es necesario para que `pytest` a secas funcione igual que `python -m pytest`; sin eso el conftest no encuentra el paquete `app` y falla solo en CI.
 
 Lo cubierto y lo pendiente de cubrir está en [PENDIENTES.md](PENDIENTES.md).
+
+⚠️ **No correr la suite con el servidor de desarrollo activo.** El mismo contenedor de Postgres (puerto 5433) sirve `finances_db` y `finances_test`, y hacerlo produce errores `sqlalchemy` intermitentes en archivos sin relación con lo que se está tocando, que parecen bugs del código.
+
+**Cada defecto que se corrige se verifica por mutación**: se revierte el arreglo a mano y se confirma que al menos un test falla. No es ceremonia — en la Fase 4 una mutación **sobrevivió** (el filtro de elegibilidad de pendientes) y reveló que el test probaba un caso que ya quedaba fuera por otro motivo.
 
 ## Problemas conocidos / deuda técnica
 
@@ -121,7 +126,7 @@ Antes de esta sesión, `saving_account.currency` ya era `varchar` en la base loc
 - **Balance inicial sin ledger**: crear una cuenta con `balance` distinto de cero no genera ninguna fila en `Transaction` — el balance inicial no queda trazado como movimiento.
 - **Drift de fechas con producción**: las 21 columnas `timestamp` de producción son *sin* zona horaria y las de local/tests son *con* zona (`create_all`). Comparar una fecha de la BD contra un `datetime` aware funciona en local y da **500 solo en producción**; ya ocurrió dos veces. Contenido por dos lados: `app/utils/datetime_helpers.as_utc()` en el código y `conftest._igualar_fechas_a_produccion` en la suite. Migrar las columnas a `timestamptz` sigue pendiente y exige revisar antes los `datetime.utcnow()` que hoy escriben naive de forma consistente.
 
-> **El modelo de categorías va a cambiar.** Se decidió el 2026-09-08 pasar a grupo/hoja (el primer nivel deja de recibir dinero). Antes de tocar categorías, presupuestos o el resumen, leer [PLAN_CATEGORIAS_V2.md](PLAN_CATEGORIAS_V2.md): varias cosas de este archivo quedan obsoletas al ejecutarlo.
+> **El modelo de categorías cambió** (Fases 0–4, 2026-09-09/10): el primer nivel ya no recibe dinero. Antes de tocar categorías, presupuestos o el resumen, leer [PLAN_CATEGORIAS_V2.md](PLAN_CATEGORIAS_V2.md) — tiene las invariantes, la migración y lo aprendido en cada fase. Queda la Fase 5 (primer arranque).
 
 ### Resueltos (se dejan anotados porque el código todavía lleva sus cicatrices)
 

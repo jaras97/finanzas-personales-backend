@@ -34,11 +34,13 @@ Niveles de auth usados en las tablas:
 
 | Método | Ruta | Descripción |
 |---|---|---|
-| POST | `/categories` (`/`) | `{name, type}` → crea categoría de usuario (`is_system=False`). 400 si ya existe una activa con ese nombre. |
-| GET | `/categories` | Query `type` (`income`\|`expense`\|`both`), `status` (`active`\|`inactive`\|`all`, default `active`). |
-| PUT | `/categories/{id}` | `{name, type}`. Sistema: solo renombrar (400 si cambia `type`). Usuario: bloquea cambio de `type` si ya tiene transacciones. |
-| DELETE | `/categories/{id}` | Soft-delete (`is_active=False`). 400 si es de sistema o tiene transacciones asociadas. |
+| POST | `/categories` (`/`) | `{name, type, color?, icon?, parent_id?}` → sin `parent_id` crea un **grupo** y, con él, su hoja `General` (invariante I3: un grupo sin hojas no recibiría nada). Con `parent_id` crea una **hoja**, que **hereda el tipo del grupo** — el cliente no debe pedir el tipo al crear una subcategoría, ya está decidido. 400 si el nombre ya existe entre sus hermanas (único por grupo, no global: «Transporte › Gasolina» y «Viajes › Gasolina» conviven). |
+| GET | `/categories` | Query `type` (`income`\|`expense`\|`both`), `status` (`active`\|`inactive`\|`all`, default `active`). Cada entrada trae, además de sus columnas: `parent_name` (denormalizado), `is_group` (`parent_id IS NULL`), `default_leaf_id` (la hoja de un grupo que solo tiene una — lo que permite a la interfaz colapsarlo en una línea y aun así saber dónde registrar) y `transactions_count`. ⚠️ `parent_name` **solo lo rellena este endpoint**: la categoría embebida en una transacción no lo trae, así que el cliente debe resolver el grupo por `parent_id` contra el árbol. |
+| PUT | `/categories/{id}` | `{name, type}`. Sistema: solo renombrar (400 si cambia `type`). Usuario: bloquea cambio de `type` si ya tiene transacciones; cambiar el tipo de un grupo lo propaga a sus hojas. |
+| DELETE | `/categories/{id}` | Soft-delete (`is_active=False`). 400 si es de sistema, si tiene transacciones asociadas, o si es un grupo con hojas activas. |
 | PUT | `/categories/{id}/reactivate` | Reactiva (`is_active=True`). |
+
+> **Modelo grupo/hoja.** El primer nivel agrupa y **nunca recibe dinero**; toda transacción, presupuesto, regla y recurrente va a una hoja. Los endpoints que asignan categoría rechazan un grupo con `400` y un mensaje que nombra sus subcategorías. Ver [DATA_MODEL.md](DATA_MODEL.md#el-modelo-grupo--hoja-desde-2026-09-09) y [PLAN_CATEGORIAS_V2.md](PLAN_CATEGORIAS_V2.md).
 
 ## Cuentas de ahorro — `app/api/saving_accounts.py` (prefijo `/saving-accounts`, todas Auth+Sub)
 
@@ -131,6 +133,20 @@ Atada 1:1 a una `SavingAccount` completa — "esta cuenta ES mi fondo para el vi
 |---|---|---|
 | GET | `/summary` (`/`) | Query `start_date`, `end_date` (default mes-a-la-fecha local), `tz` (IANA, default UTC) → `Dict[str, SummaryResponse]`, una entrada por cada moneda que el usuario realmente tiene en cuentas/deudas (`get_user_currencies`), no una lista fija. Incluye transacciones de cuenta (excluyendo `transfer`/`investment_yield`/`debt_payment`) + compras de tarjeta de crédito (por moneda de la deuda). Retorna `total_income`, `total_expense`, `balance`, `expense_by_category`, `income_by_category` (con %), `daily_evolution`, `top_expense_category`, `top_income_category`, `top_expense_day`, `top_income_day`, `overspending_alert`. |
 
+**El desglose por categoría** (`expense_by_category` / `income_by_category`) viene **anidado** desde 2026-09-09: cada línea es un **grupo** con sus hojas dentro (`children`), y el total del grupo es exactamente la suma de sus hojas — no hay «sin desglosar», porque un grupo no recibe movimientos. Cada línea trae `color` e `icon` (para no cruzar con `/categories` al pintar) y `delta_percentage`, la variación contra el período anterior.
+
+**Cómo se elige el período de comparación** (`_periodo_anterior`), tres casos y no dos:
+
+| El rango pedido | Se compara contra |
+|---|---|
+| Mes de calendario completo (1 al último día) | El mes anterior **entero** |
+| Empieza el día 1 pero no llega al final (el default de la app, «mes a la fecha») | El **mismo tramo** del mes anterior, recortado si ese mes es más corto |
+| Cualquier otro | El rango de la **misma duración** inmediatamente anterior |
+
+El segundo caso existe porque el rango por defecto caía antes en el tercero: «1 al 9 de septiembre» se comparaba contra «23 al 31 de agosto», una ventana a caballo entre dos meses que no es lo que nadie quiere decir con «vs. agosto».
+
+**«Sin categorizar» es una línea visible** con `category_id: 0` (id sintético; ninguna fila real lo usa). Reúne las **dos** formas del estado: `category_id IS NULL` y la hoja de sistema `uncategorized`. Esconderla convertiría el desglose en una media verdad — en la cuenta real eran 51 movimientos. El flujo para resolverlos es `GET /transactions/uncategorized/count` y la bandeja del frontend.
+
 ## Resúmenes extra — `app/api/summary_extra.py` (prefijo `/summary-extra`, Auth+Sub)
 
 | Método | Ruta | Descripción |
@@ -184,7 +200,7 @@ Meta de gasto mensual por categoría **y moneda** (una categoría con gastos en 
 
 | Método | Ruta | Descripción |
 |---|---|---|
-| POST | `/budgets` (`/`) | `{category_id, currency, amount>=0, effective_from?}` → crea o **actualiza** (si ya existe una fila para esa categoría+moneda+mes, la sobreescribe en vez de duplicar). 400 si la categoría no es del usuario/está inactiva, es de sistema, o es de tipo `income`. `effective_from` por defecto es el mes en curso; 400 si se intenta fijar en un mes que ya pasó. Devuelve el progreso ya calculado (ver GET). |
+| POST | `/budgets` (`/`) | `{category_id, currency, amount>=0, effective_from?}` → crea o **actualiza** (si ya existe una fila para esa categoría+moneda+mes, la sobreescribe en vez de duplicar). 400 si la categoría no es del usuario/está inactiva, es de sistema, es de tipo `income`, o **es un grupo** (invariante I2: presupuestar un grupo y una de sus hojas contaba los mismos pesos dos veces). `effective_from` por defecto es el mes en curso; 400 si se intenta fijar en un mes que ya pasó. Devuelve el progreso ya calculado (ver GET). |
 | GET | `/budgets` (`/`) | Query `month` (`YYYY-MM`, default mes en curso) → lista de presupuestos vigentes ese mes, cada uno con `spent` (gasto real acumulado) y `percentage` ya calculados. Resuelve "vigente" como la fila con `effective_from` más reciente que sea `<= month` por cada par (categoría, moneda); las pausadas (`amount=0`) no aparecen. |
 | POST | `/budgets/{id}/pause` | Inserta (o actualiza) una fila con `amount=0` para el mes en curso, usando la categoría/moneda del presupuesto `{id}` como referencia — no borra el histórico. |
 
@@ -209,7 +225,7 @@ Si la descripción de una transacción **contiene** `match_text` (comparación e
 
 | Método | Ruta | Descripción |
 |---|---|---|
-| POST | `/category-rules` (`/`) | `{category_id, match_text}` → crea con `priority` = la más alta existente del usuario + 1 (queda al final de la cola de evaluación). 400 si `match_text` está vacío o la categoría no es del usuario/está inactiva. |
+| POST | `/category-rules` (`/`) | `{category_id, match_text}` → crea con `priority` = la más alta existente del usuario + 1 (queda al final de la cola de evaluación). 400 si `match_text` está vacío, si la categoría no es del usuario/está inactiva, o si es un **grupo** (`exigir_hoja`). |
 | GET | `/category-rules` (`/`) | Lista ordenada por `priority` ascendente. |
 | PUT | `/category-rules/{id}` | Actualiza cualquier subconjunto de `{category_id, match_text, priority, is_active}` — reordenar es simplemente mandar un `priority` nuevo. |
 | DELETE | `/category-rules/{id}` | Elimina la regla. |

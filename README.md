@@ -2,7 +2,7 @@
 
 API REST para la app de finanzas personales **Balanced Cent**. Gestiona usuarios, cuentas de ahorro/inversión, deudas (préstamos y tarjetas de crédito), transacciones, categorías y suscripciones. Consumida por [finanzas-personal-frontend](../frontend).
 
-> Documentación detallada en [`docs/`](docs): [arquitectura](docs/ARCHITECTURE.md), [modelo de datos](docs/DATA_MODEL.md), [referencia de la API](docs/API.md).
+> Documentación detallada en [`docs/`](docs): [arquitectura](docs/ARCHITECTURE.md), [modelo de datos](docs/DATA_MODEL.md), [referencia de la API](docs/API.md), [plan del modelo de categorías](docs/PLAN_CATEGORIAS_V2.md).
 >
 > Transversales a ambos repos: **[pendientes](docs/PENDIENTES.md)** (incluye una acción manual crítica) y [plan de mejora](docs/PLAN_DE_MEJORA.md).
 
@@ -72,10 +72,15 @@ app/
   schemas/              # schemas Pydantic de request/response
   api/                  # routers de negocio (ver docs/API.md)
   routes/fx.py          # endpoint público de tasas de cambio
-  utils/                # helpers compartidos (balances, categorías sistema)
+  utils/                # helpers compartidos (balances, categorías de sistema)
+    category_rules.py    # ⚠️ ÚNICO sitio donde vive "esta categoría puede recibir dinero"
+    category_helpers.py  # creación/adopción de las categorías de sistema
+    datetime_helpers.py  # as_utc() — ver la nota de fechas en docs/DATA_MODEL.md
   constants/categories.py
   scripts/backfill_categories.py
 alembic/                # migraciones
+tests/                  # pytest (249 casos), contra Postgres real
+scripts/                # scripts puntuales de mantenimiento de datos
 drop_savingaccount.py   # script de mantenimiento puntual (no forma parte de la app)
 reset_db.py             # script destructivo de reseteo de esquema (¡solo dev!)
 ```
@@ -86,8 +91,18 @@ reset_db.py             # script destructivo de reseteo de esquema (¡solo dev!)
 - `drop_savingaccount.py` — elimina la tabla legacy `savingaccount` (reemplazada por `saving_account`).
 - `app/scripts/backfill_categories.py` — backfill antiguo de categorías base, superado por `app/utils/category_helpers.py::create_base_categories`.
 
+## Tests
+
+```bash
+pip install -r requirements-dev.txt
+docker-compose up -d          # la base de pruebas se crea sola
+pytest                        # 249 casos al 2026-09-10
+```
+
+⚠️ **No correr la suite con el servidor de desarrollo activo**: el mismo contenedor de Postgres sirve `finances_db` y `finances_test`, y hacerlo produce errores `sqlalchemy` intermitentes en archivos sin relación con lo que se está tocando. Detalle del diseño de `conftest.py` en [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#tests).
+
 ## Deploy
 
-Push a `main` dispara `.github/workflows/fly-deploy.yml`, que ejecuta `flyctl deploy --remote-only` (sin tests ni lint previos) usando el secret de GitHub `FLY_API_TOKEN`. `fly.toml` define `release_command = "alembic upgrade head"`, así que las migraciones corren automáticamente en cada deploy antes de que la nueva versión reciba tráfico. Servido en `https://api.balancedcent.com` (dominio propio) además de `https://personal-finances-backend.fly.dev`. Más detalle en [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#deploy).
+Push a `main` dispara `.github/workflows/fly-deploy.yml`, que tiene **dos jobs**: `test` levanta un Postgres 15 y corre `pytest`, y `deploy` depende de él (`needs: test`) — **un fallo de tests bloquea el deploy**. `deploy` ejecuta `flyctl deploy --remote-only` usando el secret de GitHub `FLY_API_TOKEN`. `fly.toml` define `release_command = "alembic upgrade head"`, así que las migraciones corren automáticamente en cada deploy antes de que la nueva versión reciba tráfico. Servido en `https://api.balancedcent.com` (dominio propio) además de `https://personal-finances-backend.fly.dev`. Más detalle en [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#deploy).
 
 ⚠️ Pendiente: la contraseña de Supabase que estuvo hardcodeada en `alembic/env.py` (ya corregido en código) sigue siendo válida hasta que se rote manualmente en el dashboard de Supabase — ver [docs/ARCHITECTURE.md — Problemas conocidos](docs/ARCHITECTURE.md#problemas-conocidos--deuda-técnica).

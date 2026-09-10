@@ -1,6 +1,6 @@
 # Pendientes — Balanced Cent
 
-Lista viva de lo que queda por hacer, para que nada quede en el olvido. Actualizada 2026-08-28.
+Lista viva de lo que queda por hacer, para que nada quede en el olvido. Actualizada 2026-09-10.
 
 > Cubre **ambos** repos (backend y [frontend](https://github.com/jaras97/finanzas-personal-frontend)); vive aquí porque la carpeta que los agrupa en local no está versionada.
 
@@ -116,7 +116,9 @@ La suite cubre hoy la lógica de plata y control de acceso. Lo que **no** está 
 - [x] ~~Reset de contraseña por token (`/auth/reset-password`)~~ ✅ 2026-08-30 — 9 tests.
 - [x] ~~Tests de frontend~~ ✅ 2026-08-31 — Vitest + Testing Library, 55 tests sobre la lógica pura de mayor riesgo (`transactionDisplay`, interceptor de refresh en `api.ts`, `middleware`, `budgetDisplay`, `format`), con CI propio (typecheck → tests → build) en push y PR. Cada test crítico se validó por mutación: se reintrodujo el bug y se confirmó que el suite lo atrapa.
 - [x] ~~Ampliar cobertura de frontend a componentes~~ ✅ 2026-08-31 — wizard de import CSV (los 4 pasos) y modal de comprobantes; 76 tests en total. Destapó un bug real: "marcar todas" incluía las filas con error y el confirm entero fallaba con 422, así que una sola línea ilegible del extracto impedía importar todas las demás. Corregido y desplegado.
-- [ ] Seguir ampliando cobertura de componentes: quedan sin tests los formularios de transacción/deuda/presupuesto y las páginas de Resumen y Transacciones. Esfuerzo: M.
+- [ ] Seguir ampliando cobertura de componentes: quedan sin tests los formularios de transacción/deuda/presupuesto y la página de Resumen. Esfuerzo: M. (La página de Transacciones sí tiene: `acciones-movil.test.tsx` cubre la paridad escritorio/móvil de cada acción, incluido el chip de categoría editable.)
+
+**Estado de las suites al 2026-09-10: 249 tests de backend, 152 de frontend.**
 
 ## Bugs conocidos del backend (no urgentes, documentados)
 
@@ -155,7 +157,26 @@ Se decidió pasar al modelo **grupo / hoja**: el primer nivel nunca recibe diner
 
 **El plan completo, con invariantes, fases, migración y decisiones de experiencia, está en [PLAN_CATEGORIAS_V2.md](PLAN_CATEGORIAS_V2.md).** Los pendientes de abajo quedan absorbidos por él:
 
-- [ ] **Bug: doble conteo en presupuestos.** Presupuestar un padre y una hija cuenta los mismos pesos dos veces — `_calc_spent` suma las hijas y nada impide presupuestar ambos. Introducido el 2026-09-04 con las subcategorías. Lo cierra la invariante I2 (Fase 0).
-- [ ] El selector de categoría en transacciones no escala a 94 entradas (`Select` plano). Fase 2 del plan.
-- [ ] `/summary` aplasta todo al grupo y no expone el desglose por hoja. Fase 3.
-- [ ] Las transacciones sin categorizar no aparecen en el Resumen. Fase 3 (fila visible) + Fase 4 (flujo para resolverlas).
+- [x] ~~**Fase 0 — Fundación del modelo**~~ ✅ 2026-09-09 — `app/utils/category_rules.py` como único sitio donde vive «esta categoría puede recibir dinero» (`exigir_hoja`, `nombre_visible`, `crear_hoja_por_defecto`), aplicado en los cinco endpoints que asignan categoría. Migración `e4f5a6b7c8d9`: para una categoría sin hijas se crea el grupo **encima** y se recuelga la fila existente debajo renombrada a «General» — conserva su id, así que **cero escrituras en `transaction`**. Solo el caso con hijas *y* movimientos propios mueve filas (10 en toda la base). La migración lleva sus propias comprobaciones, que abortan si algo queda mal; una de ellas atrapó que se estaban creando grupos `Sistema` vacíos para los 10 usuarios sin categorías de sistema, antes de escribir nada.
+- [x] ~~**Bug: doble conteo en presupuestos**~~ ✅ 2026-09-09 — cerrado **por construcción** con la invariante I2: un presupuesto solo puede ir sobre una hoja, así que ya no existe la combinación que lo causaba. No hizo falta lógica de detección.
+- [x] ~~**Fase 1 — Taxonomía y selector reestructurados**~~ ✅ 2026-09-09 — la lista de Categorías colapsa un grupo de una sola hoja sintética en una línea. Bug encontrado en navegador: colapsar por «una sola hoja» hacía **desaparecer** una subcategoría recién creada por el usuario; ahora solo se colapsa la hoja *sintética*. Y el guard de submit (`if (!name.trim() || !type)`) cortaba en silencio la creación de subcategorías, porque con el selector de tipo oculto `type` se quedaba en `''` — la subcategoría hereda el tipo del grupo.
+- [x] ~~**Fase 2 — El selector de categoría en transacciones**~~ ✅ 2026-09-10 — `CategoryPicker` (popover + búsqueda, «Frecuentes» por `transactions_count`, cabeceras de grupo no seleccionables, navegación por teclado, 44px en móvil), en los **seis** formularios que eligen categoría. Solo ofrece hojas: ofrecer un grupo sería ofrecer un error que el backend rechaza al guardar.
+- [x] ~~**Fase 3 — El Resumen con desglose**~~ ✅ 2026-09-09 — `/summary` devuelve la jerarquía anidada; `CategoryBreakdown` reemplaza los dos donuts por un bloque con conmutador Gastos/Ingresos y drill-down, con las hojas en tonos del color del grupo. `_periodo_anterior` tiene **tres** casos, no dos (ver [API.md](API.md#resúmenes)).
+- [x] ~~**Fase 4 — Higiene: recategorizar**~~ ✅ 2026-09-10 — aviso de pendientes descartable por sesión, bandeja `/transactions/pendientes` con selector por fila y operación masiva, y el chip de categoría de la lista convertido en control (antes había que abrir el modal de edición completo para tocar un campo). Backend: `GET /transactions/uncategorized/count`, `uncategorized=true` en el listado y `PATCH /transactions/bulk-category`. Destapó cuatro defectos, tres de fases anteriores — ver abajo.
+- [x] ~~Las transacciones sin categorizar no aparecen en el Resumen~~ ✅ 2026-09-09/10 — fila visible en el desglose (Fase 3) y bandeja para resolverlas (Fase 4).
+- [ ] **Fase 5 — Primer arranque.** Estados vacíos que enseñan (Transacciones, Resumen, Presupuestos) e iconos/color en la lista de movimientos y en la tabla del Resumen — el mapa (`lib/categoryIcon.tsx`) y el color estable por nombre (`lib/categoryStyle.ts`) ya existen, solo falta usarlos ahí. La invitación descartable de Categorías se mantiene y **no** se convierte en un paso obligatorio de onboarding.
+
+### Lo que destapó la Fase 4 (todo corregido y desplegado el 2026-09-10)
+
+- [x] ~~«Sin clasificar» eran **dos** estados en la base y uno solo para el usuario~~ — `category_id IS NULL` (manuales viejos) y la hoja de sistema `uncategorized` (donde la importación de CSV deja lo que ninguna regla resuelve). El desglose los contaba como dos categorías y pintaba **dos filas llamadas igual**. La regla vive ahora en un solo sitio: `es_sin_clasificar` / `condicion_sin_clasificar`.
+- [x] ~~`PATCH /transactions/{id}` se saltaba la invariante I1~~ — validaba el tipo de la categoría pero no que fuera hoja. Nadie lo había pisado porque el único camino a ese endpoint era el modal de edición, cuyo selector ya filtraba grupos; la Fase 4 lo convierte en el endpoint más transitado de la app.
+- [x] ~~El selector se rompía justo en la cuenta **nueva**~~ — ahí cada grupo tiene solo su hoja sintética, así que abría con trece cabeceras y trece opciones llamadas todas «General». La verificación de la Fase 2 no lo vio porque se hizo sobre una cuenta con subcategorías reales. Ahora el picker colapsa igual que la lista de Categorías.
+- [x] ~~La lista de movimientos mostraba «General» en cada fila~~ — `parent_name` solo lo rellena `GET /categories`, así que la categoría embebida en una transacción no lo trae y el colapso del nombre no podía aplicarse. `categoryDisplayName` busca el grupo por `parent_id` y deja `parent_name` como respaldo.
+- [x] ~~El disparador del selector tenía `role="combobox"` sin nombre accesible~~ — `combobox` no toma su nombre del contenido, así que un lector de pantalla anunciaba «cuadro combinado» y nada más.
+
+### Pendientes que deja el modelo nuevo
+
+- [ ] **Las reglas de categorización siguen siendo por hoja.** No hay «todo lo de este grupo». Con el modelo viejo era una limitación menor; con hojas estrictas y la importación bancaria en el roadmap, una regla que apunte a un grupo y caiga en su hoja por defecto puede empezar a hacer falta.
+- [ ] **La bandeja de pendientes no aprende.** Clasificar treinta movimientos de «RAPPI\*» uno por uno no ofrece crear la regla que los cubriría. El atajo «crear regla desde esta transacción» ya existe en la lista, pero no está en la bandeja, que es donde el patrón se ve.
+- [ ] **Código huérfano tras las fases 3 y 4** (frontend): `components/chart/DonutByCategory.tsx` quedó sin uso al reemplazarlo `CategoryBreakdown`, y `lib/categoryTree.ts::categoryLabel` solo lo llama ya su propio test. Se suman a `SummaryLineChart.tsx`/`SummaryPieChart.tsx`, que ya estaban muertos de antes: conviene borrarlos de una sola pasada, no de a uno.
+- [ ] **`condicion_sin_clasificar` hace una consulta extra por llamada** para encontrar la hoja de sistema. Es un `SELECT` por id indexado y hoy no se nota; si el contador se pone en el layout global, conviene cachearlo por usuario.

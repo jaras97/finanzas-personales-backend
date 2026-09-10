@@ -76,13 +76,40 @@ Desde 2026-09-04, dos columnas de presentación:
 |---|---|---|
 | `color` | str? | **Clave de paleta** (`sky`, `emerald`…), nunca un hex: un hex fijo no puede verse bien en tema claro y oscuro a la vez. Validada contra `PALETTE` en `app/utils/default_categories.py`. Nula en todo lo anterior a esa fecha |
 | `icon` | str? | Nombre de un icono de lucide (`Home`, `Car`…). El frontend lo resuelve en `lib/categoryIcon.tsx`, con `Tag` de reserva |
-| `parent_id` | int? (FK → `category.id`) | Desde 2026-09-04. Nulo = categoría de primer nivel. **Máximo dos niveles**, validado en `api/categories.py` (no con una constraint: requeriría un trigger). Una subcategoría hereda el tipo del padre, y su nombre es único **por padre**, no global |
+| `parent_id` | int? (FK → `category.id`) | Desde 2026-09-04. Nulo = **grupo** (primer nivel); no nulo = **hoja**. Exactamente dos niveles, validado en `api/categories.py` (no con una constraint: requeriría un trigger). Una hoja hereda el tipo de su grupo, y su nombre es único **por grupo**, no global |
 
-> **Qué implica `parent_id` para los reportes.** `/summary` suma cada subcategoría a su padre: el punto de la jerarquía es que el dashboard muestre ocho categorías reconocibles en vez de veinticinco hojas. Y un presupuesto sobre un padre **incluye el gasto de sus hijas** — ignorarlas mostraría plata disponible que ya se gastó, el peor error posible en un presupuesto.
+### El modelo grupo / hoja (desde 2026-09-09)
+
+**`parent_id IS NULL` es un grupo y NUNCA recibe dinero. `parent_id NOT NULL` es una hoja y es la única que lo recibe.** Toda `transaction`, `budget`, `category_rule` y `recurring_transaction` apunta siempre a una hoja.
+
+El porqué, las alternativas descartadas y la migración están en **[PLAN_CATEGORIAS_V2.md](PLAN_CATEGORIAS_V2.md)**. En corto: el modelo anterior dejaba que un grupo recibiera movimientos *además* de sus hijas, y eso hacía que el total de un grupo no fuera la suma de sus hojas. Con importación bancaria y presupuestos robustos en el roadmap, esa ambigüedad se paga en cada reporte.
+
+Las siete invariantes que sostienen el modelo (I1–I7) están enumeradas en el plan. Las tres que se validan en cada escritura:
+
+| | Invariante | Dónde se hace cumplir |
+|---|---|---|
+| **I1** | Ninguna transacción apunta a un grupo | `app/utils/category_rules.py::exigir_hoja`, llamado desde `transactions.py` (crear **y** editar), `budgets.py`, `category_rules.py`, `recurring_transactions.py` |
+| **I2** | Ningún presupuesto apunta a un grupo | misma función. Cierra por construcción el doble conteo que existía al presupuestar padre e hija a la vez |
+| **I3** | Ningún grupo se queda sin hojas | `crear_hoja_por_defecto` al nacer un grupo; la migración `e4f5a6b7c8d9` lo comprueba con un `assert` que aborta |
+
+**La hoja «General».** Un grupo recién creado nace con una hoja llamada `General` (`crear_hoja_por_defecto`), porque sin ella el grupo no podría recibir nada (I3). El usuario **nunca ve ese nombre**: `nombre_visible()` en el backend y `categoryDisplayName()` en el frontend colapsan un grupo de una sola hoja sintética en una única línea con el nombre del grupo. Quien creó «Mascotas» y nunca la desglosó ve «Mascotas», no «Mascotas › General».
+
+> Solo se colapsa la hoja **sintética**. Si alguien crea «Transporte › Gasolina» y esa queda como única hoja, se muestra: colapsarla haría desaparecer lo que el usuario acaba de crear.
+
+**El grupo `Sistema`.** Las categorías operativas (Transferencia, Sin categorizar, Comisiones, Pago de Deuda, Rendimientos) son hojas de un grupo oculto con `system_key='system_group'`. Existe para que la regla «solo las hojas reciben dinero» no necesite ninguna excepción: sin él, Transferencia sería un grupo de primer nivel y no podría recibir los movimientos que sí recibe. La interfaz nunca lo muestra, y `nombre_visible` no lo usa como prefijo («Sistema › Sin categorizar» no le dice nada a nadie).
+
+> **Qué implica para los reportes.** `/summary` devuelve cada grupo con sus hojas anidadas, y **el total del grupo es exactamente la suma de sus hojas** — ya no hace falta una línea «sin desglosar». Un presupuesto solo puede ir sobre una hoja, así que tampoco puede contar los mismos pesos dos veces.
+
+**«Sin clasificar» son DOS estados en la base y uno solo para el usuario** (detectado en la Fase 4):
+
+- `transaction.category_id IS NULL` — movimientos manuales anteriores a que la categoría fuera obligatoria.
+- `category_id` → la hoja de sistema `uncategorized` — donde la importación de CSV deja lo que ninguna regla resuelve.
+
+La regla que los une vive en un solo sitio: `es_sin_clasificar()` / `condicion_sin_clasificar()` en `app/utils/category_rules.py`. Tratarlos por separado hacía que el desglose del Resumen pintara **dos filas llamadas «Sin categorizar»**, indistinguibles entre sí.
 
 > Cuando `color` es nulo, el frontend **deriva el color de un hash estable del nombre** (`lib/categoryStyle.ts`). Eso corrige un defecto anterior: los gráficos asignaban color por POSICIÓN, así que una categoría cambiaba de color entre un mes y otro según su ranking de gasto. La solución por hash arregla también las categorías que ya existían, sin tocar una sola fila.
 
-**Categorías sembradas.** Al registrarse se crean 13 categorías de la taxonomía sugerida (`app/utils/default_categories.py`, derivada de `docs/Categorias_Finanzas_Egresos_e_Ingresos.pdf`). **No son `is_system`**: el usuario puede renombrarlas, recolorearlas y desactivarlas. Las de sistema (Transferencia, Sin categorizar…) son operativas y siguen viviendo en `category_helpers.py`.
+**Categorías sembradas.** Al registrarse se crean 13 categorías de la taxonomía sugerida (`app/utils/default_categories.py`, derivada de `docs/Categorias_Finanzas_Egresos_e_Ingresos.pdf`), cada una como un **grupo con su hoja `General`** dentro. **No son `is_system`**: el usuario puede renombrarlas, recolorearlas y desactivarlas. Las de sistema (Transferencia, Sin categorizar…) son operativas, viven en `category_helpers.py` y cuelgan del grupo `Sistema`. El catálogo completo son 25 grupos y 69 hojas, que se ofrecen bajo demanda en el selector de taxonomía — ninguna hoja se siembra: 94 casillas premarcadas serían el mismo muro que la jerarquía venía a evitar.
 
 
 ## `Debt` (`app/models/debt.py`)
@@ -140,6 +167,7 @@ Ledger central de todos los movimientos.
 | `source_type` | str? | `debt_payment`, `credit_card_purchase`, `credit_card_purchase_reversal`, `transfer`, `investment_yield`, `account_deposit`, `account_withdraw` (desde 2026-09-02; antes los retiros se archivaban como `account_deposit`), o `None` para movimientos manuales. El frontend solo ramifica por `credit_card_purchase` y `transfer`; el resto se muestra como un ingreso o egreso normal |
 | `transfer_group_id` | UUID? | indexado, une las dos patas de una transferencia |
 | `reversal_note` | str? | máx. 500 caracteres |
+| `category_id` | int? (FK → `category.id`) | **Siempre una hoja** (invariante I1) — `exigir_hoja` rechaza un grupo con 400 al crear **y** al editar. Nulo solo en datos anteriores a que fuera obligatoria y en `investment_yield`; ese nulo es una de las dos formas de «sin clasificar» (ver `Category` arriba) |
 
 Relaciones: `category`, `saving_account` (pata única de income/expense), `from_account`/`to_account` (patas de transferencia, cada una con `foreign_keys` explícito), `debt`.
 
@@ -151,7 +179,7 @@ Meta de gasto mensual por categoría y moneda. Ver [API.md](API.md) para los end
 |---|---|---|
 | `id` | int (PK) | |
 | `user_id` | UUID (FK) | indexado |
-| `category_id` | int (FK → `category.id`) | indexado |
+| `category_id` | int (FK → `category.id`) | indexado. **Siempre una hoja** (invariante I2) — `exigir_hoja` rechaza un grupo con 400 |
 | `currency` | str (FK → `currency.code`) | máx. 3 caracteres |
 | `amount` | float | `0` significa "pausado desde este mes" |
 | `effective_from` | date | indexado; siempre el día 1 de un mes |
@@ -160,6 +188,8 @@ Meta de gasto mensual por categoría y moneda. Ver [API.md](API.md) para los end
 `UniqueConstraint(user_id, category_id, currency, effective_from)`.
 
 Diseño: cada fila es una **versión** del presupuesto vigente a partir de `effective_from`, no un valor mutable único — editar el mes en curso actualiza esa misma fila (mismo `effective_from`), pero no se puede reescribir un mes que ya pasó (`POST /budgets` rechaza `effective_from` anterior al mes actual). Pausar inserta/actualiza una fila con `amount=0` en el mes en curso en vez de borrar histórico. La misma categoría se trackea por separado en cada moneda (no se fusionan montos entre monedas). El gasto real (`GET /budgets`) reutiliza el mismo criterio de exclusión que `GET /summary`: no cuentan transferencias, rendimientos de inversión ni pagos de deuda, y se excluyen transacciones canceladas o reversadas.
+
+> Desde el modelo grupo/hoja (2026-09-09) un presupuesto solo puede ir sobre una **hoja**. Eso cierra **por construcción** el doble conteo que existía antes: presupuestar un grupo y una de sus hijas contaba los mismos pesos dos veces, porque el gasto del grupo incluía a las hijas y nada impedía presupuestar ambos.
 
 ## `ImportProfile` (`app/models/import_profile.py`)
 
@@ -185,7 +215,7 @@ Regla de categorización automática. Ver [API.md](API.md) para los endpoints (`
 |---|---|---|
 | `id` | int (PK) | |
 | `user_id` | UUID (FK) | indexado |
-| `category_id` | int (FK → `category.id`) | |
+| `category_id` | int (FK → `category.id`) | **Siempre una hoja** — `exigir_hoja` rechaza un grupo con 400 |
 | `match_text` | str | se compara en minúsculas, "contiene", sin regex |
 | `priority` | int | indexado; menor va primero, gana la primera que matchea |
 | `is_active` | bool | default `True` |
