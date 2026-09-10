@@ -153,9 +153,13 @@ Cada fase deja el sistema **coherente y desplegable**. No hay estados intermedio
 
 ---
 
-## Fase 2 — El selector de categoría en transacciones
+## Fase 2 — El selector de categoría en transacciones ✅ (2026-09-10)
 
-*Frontend. Es donde más se nota la mejora de experiencia.*
+*Frontend.* `CategoryPicker` (Popover + búsqueda) sustituye al `Select` en los **seis** formularios, no solo en Transacciones: tener dos controles distintos para lo mismo habría sido peor que el problema original.
+
+**«Frecuentes» ordena por `transactions_count`, que es de TODA la vida, no de los últimos 90 días** como decía el plan. Es un dato que el backend ya devolvía y evita un endpoint nuevo; el sesgo hacia categorías antiguas es real pero pequeño frente al beneficio. Si algún día molesta, hay que añadir un conteo por ventana.
+
+**Buscar por el nombre del grupo trae sus hojas:** escribir «transporte» encuentra Gasolina y Peajes. El usuario piensa en la categoría, no en la subcategoría.
 
 **El problema:** un `Select` plano con hasta 94 entradas se recorre con scroll. Es el control equivocado para esa cardinalidad.
 
