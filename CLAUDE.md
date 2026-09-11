@@ -35,7 +35,7 @@ API de **Balanced Cent**, app de finanzas personales en español. FastAPI + SQLM
 ## Cómo se trabaja acá
 
 - **Comentarios y mensajes de commit en español**, explicando el **porqué** y no el qué. Los mensajes de error de cara al usuario también, y deben decir qué hacer al respecto.
-- **Tests contra Postgres real**, no SQLite (el proyecto usa tipos específicos de PG y ya hubo incidentes por diferencias entre entornos). `pytest`, 249 casos.
+- **Tests contra Postgres real**, no SQLite (el proyecto usa tipos específicos de PG y ya hubo incidentes por diferencias entre entornos). `pytest`, 251 casos.
 - **Cada defecto corregido se verifica por mutación**: revertir el arreglo a mano y confirmar que al menos un test falla. No es ceremonia — en la Fase 4 una mutación sobrevivió y reveló un test que probaba un caso que ya quedaba fuera por otro motivo.
 - ⚠️ **No correr `pytest` con el servidor de desarrollo activo**: el mismo contenedor de Postgres (puerto 5433) sirve `finances_db` y `finances_test`, y produce errores intermitentes en archivos sin relación con lo que se está tocando.
 - **Verificar en un navegador real, no solo con tests.** Varios de los bugs más visibles de este proyecto (una subcategoría que desaparecía al crearla, trece opciones llamadas «General» en una cuenta nueva, el footer a media página) son estructuralmente invisibles para jsdom.

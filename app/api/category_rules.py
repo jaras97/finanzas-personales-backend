@@ -18,7 +18,11 @@ from app.schemas.category_rule import (
 )
 from app.utils.category_helpers import get_or_create_uncategorized_category
 from app.utils.category_rule_helpers import suggest_category
-from app.utils.category_rules import exigir_hoja, nombre_visible
+from app.utils.category_rules import (
+    condicion_sin_clasificar,
+    exigir_hoja,
+    nombre_visible,
+)
 
 router = APIRouter(prefix="/category-rules", tags=["category-rules"])
 
@@ -144,9 +148,19 @@ def delete_rule(rule_id: int, user_id: UUID = Depends(get_current_user_with_subs
 def apply_rules(user_id: UUID = Depends(get_current_user_with_subscription_check)):
     """Aplica las reglas activas contra transacciones ya existentes que
     todavía están en "Sin categorizar" -- útil después de crear una regla
-    nueva, o de una importación que dejó filas sin categorizar."""
+    nueva, o de una importación que dejó filas sin categorizar.
+
+    "Sin categorizar" son DOS estados en la base (`category_id IS NULL` en los
+    movimientos manuales viejos, y la hoja de sistema donde deja el import de
+    CSV lo que ninguna regla resuelve). Este endpoint solo miraba la hoja, así
+    que los manuales viejos -- que son justo los que llenan la bandeja de
+    pendientes -- quedaban fuera: crear una regla y pulsar "aplicar" no los
+    tocaba, sin ningún error que lo delatara.
+    """
     with Session(engine) as session:
-        uncategorized = get_or_create_uncategorized_category(session, user_id)
+        # Se sigue creando la hoja de sistema si falta: `condicion_sin_clasificar`
+        # la necesita para reconocer el segundo estado.
+        get_or_create_uncategorized_category(session, user_id)
 
         rules = session.exec(
             select(CategoryRule).where(
@@ -159,7 +173,7 @@ def apply_rules(user_id: UUID = Depends(get_current_user_with_subscription_check
         candidates = session.exec(
             select(Transaction).where(
                 Transaction.user_id == user_id,
-                Transaction.category_id == uncategorized.id,
+                condicion_sin_clasificar(session, user_id),
                 Transaction.is_cancelled == False,  # noqa: E712
             )
         ).all()

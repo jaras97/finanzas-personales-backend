@@ -52,6 +52,7 @@ Esto es lo que hace que "ingresar información sea tedioso", en orden de impacto
 - [ ] Exportar reportes a PDF/Excel. Esfuerzo: M.
 - [ ] Tendencia histórica multi-mes / interanual en el dashboard. Esfuerzo: M.
 - [x] ~~Adjuntar comprobante/foto de recibo a una transacción~~ ✅ 2026-08-30 — Supabase Storage en bucket privado, URLs firmadas de 1h, ruta construida en el servidor (no con el `filename` del cliente). Ícono de clip con contador en Transacciones. **Requiere `SUPABASE_URL` y `SUPABASE_SERVICE_KEY` en producción.**
+- [x] ~~**Adjuntar el comprobante al crear el movimiento**~~ ✅ 2026-09-10 — hasta ahora el adjunto solo existía en el historial, así que pegarlo costaba cinco pasos y casi nunca se hacía. Campo opcional en `NewTransactionModal` (y en la compra con tarjeta). **Solo frontend**: `POST /transactions` ya devolvía la transacción con su id y el cliente lo estaba descartando. Se crea primero y se sube después (el adjunto cuelga de un id que no existe antes); un fallo de subida **nunca** se reporta como fallo de creación, porque quien lea eso registra el gasto dos veces. Las reglas del archivo se centralizaron en `lib/attachments.ts` y ahora también las aplica `AttachmentsModal`, que no validaba nada en cliente. 12 tests nuevos (169 en total), 4 mutaciones verificadas, y prueba en navegador a 390px de punta a punta.
 - [ ] Transacciones divididas (un recibo, varias categorías). Esfuerzo: M.
 - [ ] Conciliación bancaria (comparar saldo de la app contra el extracto real). Esfuerzo: M.
 
@@ -89,7 +90,7 @@ Auditoría hecha en iPhone 13 (390×844) sobre las 10 rutas de `(app)`: sin desb
 - [ ] Adoptar `react-hook-form` + `zod` en los formularios (ya están instalados y sin usar; hoy todo es `useState` manual por campo). Esfuerzo: L.
 - [ ] Separar visualmente "compra con tarjeta" de "gasto desde cuenta" en el flujo de nueva transacción (hoy la tarjeta aparece como si fuera una cuenta más, con prefijo `debt-` interno). Esfuerzo: S.
 - [ ] Enlazar o eliminar `WithdrawFromAccountModal` — existe en el código pero ningún botón lo abre (el botón "Depositar" también está comentado en `AccountsSection.tsx`). Esfuerzo: S.
-- [ ] Eliminar componentes huérfanos (`Header.tsx`, `MobileSidebarTrigger.tsx`, `SummaryLineChart.tsx`, `SummaryPieChart.tsx`). Esfuerzo: XS.
+- [x] ~~Eliminar componentes huérfanos (`Header.tsx`, `MobileSidebarTrigger.tsx`, `SummaryLineChart.tsx`, `SummaryPieChart.tsx`)~~ ✅ 2026-09-10 — ver la sección de categorías v2 abajo.
 - [x] ~~Quitar los `console.log` de debug con emojis del middleware de Next.js~~ ✅ 2026-08-30
 - [ ] Centralizar el patrón "fecha a mediodía local" — está copiado en al menos 4 archivos. Esfuerzo: S.
 - [ ] Unificar el manejo de errores de API: varios modales reimplementan su propio `extractApiError` en vez de usar `src/lib/extractErrorMessage.ts`. Esfuerzo: S.
@@ -118,7 +119,7 @@ La suite cubre hoy la lógica de plata y control de acceso. Lo que **no** está 
 - [x] ~~Ampliar cobertura de frontend a componentes~~ ✅ 2026-08-31 — wizard de import CSV (los 4 pasos) y modal de comprobantes; 76 tests en total. Destapó un bug real: "marcar todas" incluía las filas con error y el confirm entero fallaba con 422, así que una sola línea ilegible del extracto impedía importar todas las demás. Corregido y desplegado.
 - [ ] Seguir ampliando cobertura de componentes: quedan sin tests los formularios de transacción/deuda/presupuesto y la página de Resumen. Esfuerzo: M. (La página de Transacciones sí tiene: `acciones-movil.test.tsx` cubre la paridad escritorio/móvil de cada acción, incluido el chip de categoría editable.)
 
-**Estado de las suites al 2026-09-10: 249 tests de backend, 152 de frontend.**
+**Estado de las suites al 2026-09-10: 251 tests de backend, 186 de frontend.**
 
 ## Bugs conocidos del backend (no urgentes, documentados)
 
@@ -178,7 +179,14 @@ Se decidió pasar al modelo **grupo / hoja**: el primer nivel nunca recibe diner
 
 ### Pendientes que deja el modelo nuevo
 
-- [ ] **Las reglas de categorización siguen siendo por hoja.** No hay «todo lo de este grupo». Con el modelo viejo era una limitación menor; con hojas estrictas y la importación bancaria en el roadmap, una regla que apunte a un grupo y caiga en su hoja por defecto puede empezar a hacer falta.
-- [ ] **La bandeja de pendientes no aprende.** Clasificar treinta movimientos de «RAPPI\*» uno por uno no ofrece crear la regla que los cubriría. El atajo «crear regla desde esta transacción» ya existe en la lista, pero no está en la bandeja, que es donde el patrón se ve.
-- [ ] **Código huérfano tras las fases 3 y 4** (frontend): `components/chart/DonutByCategory.tsx` quedó sin uso al reemplazarlo `CategoryBreakdown`, y `lib/categoryTree.ts::categoryLabel` solo lo llama ya su propio test. Se suman a `SummaryLineChart.tsx`/`SummaryPieChart.tsx`, que ya estaban muertos de antes: conviene borrarlos de una sola pasada, no de a uno.
+- [x] ~~**Las reglas de categorización siguen siendo por hoja.**~~ — **se decide NO hacerlo** (2026-09-10), tras mirar de cerca qué ahorraría. Queda anotado para no re-litigarlo:
+  - Una regla mapea un **texto** a una categoría. «ESSO → Gasolina» y «PEAJE → Peajes» son dos textos distintos y necesitan dos reglas **al nivel que sea**: apuntar al grupo no ahorra ninguna. El ahorro que se imaginaba no existe.
+  - En un grupo **sin desglosar** ya funciona hoy: el selector lo ofrece como una línea («Mascotas») y por debajo cae en su hoja. El usuario nunca ve el segundo nivel.
+  - Donde sí cambiaría algo es en un grupo **ya desglosado**, y ahí hacer que «todo lo de Transporte» caiga en un cajón «General» **deshace el desglose justo en los movimientos importados**, que serán la mayoría: reintroduce el cubo mezclado que I2 eliminó por construcción, y con él la línea «sin desglosar» que [PLAN_CATEGORIAS_V2.md](PLAN_CATEGORIAS_V2.md) celebra haber matado.
+  - El catch-all «lo de este grupo que no reconozco» ya existe y se llama «Sin categorizar», que ahora además tiene bandeja y sugiere reglas.
+  - **Reabrir si la importación bancaria lo desmiente con datos reales**, no antes.
+- [x] ~~**La bandeja de pendientes no aprende.**~~ ✅ 2026-09-10 — al clasificar un movimiento, si otros pendientes comparten su comercio, la bandeja ofrece la regla que los cubriría, con el conteo de cuántos ahorra; crearla la **aplica** de inmediato a lo ya pendiente. Se ofrece solo cuando cubre al menos otro movimiento: proponerla siempre la convierte en ruido que nadie lee. La heurística que saca el comercio de una descripción bancaria (`lib/reglaSugerida.ts`, «RAPPI\*BOGOTA 4471» → «RAPPI») salta las palabras genéricas de todo extracto —una regla sobre «PAGO» clasificaría medio historial— y **conserva las tildes**, porque el texto se usa tal cual como `match_text` y el backend compara contra la descripción original.
+  - **Destapó un bug de fondo: `POST /category-rules/apply` solo cubría la mitad de «sin clasificar».** Filtraba por la hoja de sistema `uncategorized` e ignoraba `category_id IS NULL`, o sea justo los movimientos manuales viejos que llenan la bandeja: crear una regla y pulsar «aplicar a existentes» no los tocaba, **sin ningún error que lo delatara**. Ahora usa `condicion_sin_clasificar`, como el resto de la app desde la Fase 4. Dos tests, uno de ellos el contrapeso (ensanchar el filtro no puede llevarse por delante lo que el usuario ya clasificó a mano).
+- [x] ~~**Código huérfano tras las fases 3 y 4** (frontend)~~ ✅ 2026-09-10 — borrados de una pasada, tras confirmar con búsqueda de imports que nadie los referenciaba: `DonutByCategory.tsx`, `SummaryLineChart.tsx`, `SummaryPieChart.tsx`, `Header.tsx`, `MobileSidebarTrigger.tsx` y `categoryTree.ts::categoryLabel` (con su test). `WithdrawFromAccountModal.tsx` **se deja a propósito**: no es código muerto sino una decisión abierta —«enlazar o eliminar»— y borrarlo sería decidir que esa funcionalidad no se quiere.
+- [ ] **`NewTransactionModal` pierde cuenta y categoría si se monta ya abierto.** Los efectos del mount corren con `type` todavía vacío y las limpian; el flujo real no lo alcanza porque el modal se monta cerrado y `openSignal` sube después, y en «repetir última» queda enmascarado porque `readTxPreferences()` suele traer los mismos valores. Se detectó escribiendo los tests del comprobante (2026-09-10), que por eso montan cerrado y abren en un segundo render. Vale arreglarlo si alguna vez se monta el modal abierto.
 - [ ] **`condicion_sin_clasificar` hace una consulta extra por llamada** para encontrar la hoja de sistema. Es un `SELECT` por id indexado y hoy no se nota; si el contador se pone en el layout global, conviene cachearlo por usuario.

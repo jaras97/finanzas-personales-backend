@@ -79,7 +79,7 @@ Ver [DATA_MODEL.md](DATA_MODEL.md) para el detalle de tablas. Puntos clave de di
 
 ## Tests
 
-`pytest` en `tests/`, **249 casos** (2026-09-10), contra **Postgres real** (no SQLite: el proyecto usa tipos específicos de PG y ya tuvo incidentes por diferencias entre entornos).
+`pytest` en `tests/`, **251 casos** (2026-09-10), contra **Postgres real** (no SQLite: el proyecto usa tipos específicos de PG y ya tuvo incidentes por diferencias entre entornos).
 
 ```bash
 pip install -r requirements-dev.txt

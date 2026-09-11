@@ -129,3 +129,88 @@ def test_inactive_rule_is_not_applied(client, auth, make_account, make_category)
 
     res = client.post("/category-rules/apply", headers=auth)
     assert res.json()["updated"] == 0
+
+
+def test_apply_rules_also_covers_transactions_with_null_category(
+    client, auth, make_account, make_category, session
+):
+    """«Sin categorizar» son DOS estados y `apply` solo cubría uno.
+
+    Los movimientos manuales anteriores a que la categoría fuera obligatoria
+    tienen `category_id IS NULL`; el import de CSV, en cambio, deja lo suyo en
+    la hoja de sistema. `apply` miraba solo la hoja, así que crear una regla y
+    pulsar «aplicar a existentes» no tocaba los manuales viejos -- que son
+    justo los que llenan la bandeja de pendientes -- sin ningún error visible.
+
+    Ese estado solo se alcanza por SQL directo: la API ya exige categoría.
+    """
+    from sqlalchemy import text
+
+    acc = make_account()
+    destino = make_category(name="Domicilios", type_="expense")
+    otra = make_category(name="Otra cosa", type_="expense")
+
+    tx = client.post(
+        "/transactions",
+        json={
+            "amount": 32000,
+            "category_id": otra["id"],
+            "description": "RAPPI*BOGOTA 4471",
+            "type": "expense",
+            "saving_account_id": acc["id"],
+        },
+        headers=auth,
+    ).json()
+
+    session.execute(
+        text("UPDATE transaction SET category_id = NULL WHERE id = :id"), {"id": tx["id"]}
+    )
+    session.commit()
+
+    client.post(
+        "/category-rules",
+        json={"category_id": destino["id"], "match_text": "rappi"},
+        headers=auth,
+    )
+
+    res = client.post("/category-rules/apply", headers=auth)
+    assert res.status_code == 200, res.text
+    assert res.json()["updated"] == 1
+
+    items = client.get("/transactions/with-category", headers=auth).json()["items"]
+    actualizada = next(i for i in items if i["id"] == tx["id"])
+    assert actualizada["category"]["id"] == destino["id"]
+
+
+def test_apply_rules_does_not_touch_already_categorized(
+    client, auth, make_account, make_category
+):
+    """El contrapeso del test anterior: ensanchar el filtro no puede llevarse
+    por delante lo que el usuario ya clasificó a mano."""
+    acc = make_account()
+    elegida = make_category(name="Mercado", type_="expense")
+    destino = make_category(name="Domicilios", type_="expense")
+
+    tx = client.post(
+        "/transactions",
+        json={
+            "amount": 32000,
+            "category_id": elegida["id"],
+            "description": "RAPPI*BOGOTA 4471",
+            "type": "expense",
+            "saving_account_id": acc["id"],
+        },
+        headers=auth,
+    ).json()
+
+    client.post(
+        "/category-rules",
+        json={"category_id": destino["id"], "match_text": "rappi"},
+        headers=auth,
+    )
+
+    assert client.post("/category-rules/apply", headers=auth).json()["updated"] == 0
+
+    items = client.get("/transactions/with-category", headers=auth).json()["items"]
+    actualizada = next(i for i in items if i["id"] == tx["id"])
+    assert actualizada["category"]["id"] == elegida["id"]
